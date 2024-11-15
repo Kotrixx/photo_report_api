@@ -1,14 +1,13 @@
 # app/routes/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status
-from datetime import timedelta
+from datetime import timedelta, datetime
+
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from starlette.responses import HTMLResponse
 
-from app.models.schemas import Token, TokenRefreshRequest, LoginData
 from app.models.models import User
-
+from app.models.schemas import Token, LoginData
 from app.routes.v1_0.security import router
-from app.utils.security_utils.security_utils import verify_password, create_access_token, decode_token
+from app.utils.security_utils.security_utils import verify_password, create_access_token, RefreshTokenBearer
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -31,10 +30,30 @@ async def login(data: LoginData):
     print(data.username)
     print(data.password)
     # check_user_exists()
-    user = await User.find_one(User.username == data.username)
-    if data.username == "ricardo.bravo@aingetk.com" and data.password == "ricardo.bravo":
-        access_token = create_access_token(data={"sub": data.username}, expires_delta=timedelta(minutes=30))
-        return {"access_token": access_token, "token_type": "bearer"}
+    user = await User.find_one(User.email == data.username)
+    if user is not None:
+        password_valid = verify_password(data.password, user.password)
+        if password_valid:
+            access_token = create_access_token(
+                data={"sub": data.username,
+                      "user_uid": str(user.id)},
+                expires_delta=timedelta(minutes=30))
+
+            refresh_token = create_access_token(
+                data={"sub": data.username,
+                      "user_uid": str(user.id)},
+                expires_delta=timedelta(days=7),
+                refresh=True
+            )
+            return {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer",
+                "user": {
+                    "email": user.email,
+                    "uid": str(user.id)
+                }
+            }
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -71,12 +90,14 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/token/refresh")
-async def refresh_token(request: TokenRefreshRequest):
-    try:
-        payload = decode_token(request.refresh_token)  # Decode and validate refresh token
-        user_data = {"sub": payload.get("sub"), "role": payload.get("role")}
-        new_access_token = create_access_token(data=user_data)
-        return {"access_token": new_access_token}
-    except HTTPException as e:
-        raise HTTPException(status_code=e.status_code, detail="Invalid or expired refresh token")
+@router.get("/refresh_token")
+async def get_new_acess_token(token_details: dict = Depends(RefreshTokenBearer())):
+    print(f"token details: {token_details}")
+    expiry_timestamp = token_details['exp']
+    if datetime.fromtimestamp(expiry_timestamp) > datetime.now():
+        new_access_token = create_access_token(
+            token_details
+        )
+        return {"access_token": new_access_token, "token_type": "bearer"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid or expired refresh token")

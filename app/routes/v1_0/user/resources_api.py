@@ -1,7 +1,8 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, Depends
 
 from app.models.models import Resource
 from app.routes.v1_0.user import router
+from app.utils.security_utils.security_utils import AccessTokenBearer
 
 
 @router.post("/resources", status_code=201)
@@ -16,7 +17,7 @@ async def create_resource(resource_name: str, description: str):
 
 
 @router.get("/resources")
-async def get_resources():
+async def get_resources(user_details=Depends(AccessTokenBearer())):
     resources = await Resource.all().to_list()
     return resources
 

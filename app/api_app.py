@@ -11,8 +11,9 @@ from app.models.database import init_db
 from app.routes.v1_0.device import device_api as device_routes
 from app.routes.v1_0.readings import readings_api as readings_routes
 from app.routes.v1_0.security import security_api as security_routes
-from app.routes.v1_0.user import permissions_api as user_routes
-from app.utils.security_utils.security_utils import authenticate_token, create_access_token
+from app.routes.v1_0.user import user_api as user_routes
+from app.routes.v1_0.user import permissions_api as permissions_routes
+from app.routes.v1_0.user import resources_api as resources_routes
 from fastapi import FastAPI, Depends, HTTPException, Response, Request
 
 
@@ -22,8 +23,6 @@ async def app_lifespan(app: FastAPI):
 
 
 api_app = FastAPI(lifespan=app_lifespan)
-api_app.add_middleware(AuthMiddleware)
-api_app.add_middleware(CookieToHeaderMiddleware)
 
 origins = [
     "http://localhost",
@@ -49,6 +48,8 @@ def config():
     api_app.include_router(readings_routes.router, prefix="/v1.0")
     api_app.include_router(security_routes.router, prefix="/v1.0")
     api_app.include_router(user_routes.router, prefix="/v1.0")
+    api_app.include_router(resources_routes.router, prefix="/v1.0")
+    api_app.include_router(permissions_routes.router, prefix="/v1.0")
 
 
 config()
