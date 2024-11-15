@@ -1,22 +1,19 @@
-import secrets
-from typing import Annotated
-
-from fastapi import FastAPI, Depends
+import base64
+import httpx
+import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.security import OAuth2PasswordBearer
-import jwt
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-
+from starlette.responses import HTMLResponse, RedirectResponse, JSONResponse
+from app.middleware.auth_middleware import AuthMiddleware, CookieToHeaderMiddleware
 from app.middleware.logging_middleware import request_logger
 from app.models.database import init_db
-from app.routes.device import device_api as device_routes
-from app.routes.readings import readings_api as readings_routes
-from app.routes.security import security_api as security_routes
-
-SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+from app.routes.v1_0.device import device_api as device_routes
+from app.routes.v1_0.readings import readings_api as readings_routes
+from app.routes.v1_0.security import security_api as security_routes
+from app.routes.v1_0.user import permissions_api as user_routes
+from app.utils.security_utils.security_utils import authenticate_token, create_access_token
+from fastapi import FastAPI, Depends, HTTPException, Response, Request
 
 
 async def app_lifespan(app: FastAPI):
@@ -25,6 +22,8 @@ async def app_lifespan(app: FastAPI):
 
 
 api_app = FastAPI(lifespan=app_lifespan)
+api_app.add_middleware(AuthMiddleware)
+api_app.add_middleware(CookieToHeaderMiddleware)
 
 origins = [
     "http://localhost",
@@ -46,9 +45,10 @@ api_app.add_middleware(
 
 
 def config():
-    api_app.include_router(device_routes.router)
-    api_app.include_router(readings_routes.router)
-    api_app.include_router(security_routes.router)
+    api_app.include_router(device_routes.router, prefix="/v1.0")
+    api_app.include_router(readings_routes.router, prefix="/v1.0")
+    api_app.include_router(security_routes.router, prefix="/v1.0")
+    api_app.include_router(user_routes.router, prefix="/v1.0")
 
 
 config()
@@ -59,11 +59,78 @@ api_app.middleware("http")(request_logger)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
-@api_app.get("/items/")
-async def read_items(token: Annotated[str, Depends(oauth2_scheme)]):
-    return {"token": token}
+@api_app.get("/login", response_class=HTMLResponse)
+async def login(request: Request):
+    auth = request.headers.get("Authorization")
+    if not auth:
+        return Response(headers={"WWW-Authenticate": "Basic"}, status_code=401)
+
+    try:
+        _, auth_value = auth.split(" ")
+        decoded = base64.b64decode(auth_value).decode("ascii")
+        username, _, password = decoded.partition(":")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "http://localhost:8000/v1.0/security/token",
+                data={"username": username, "password": password},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+
+        if response.status_code == 200:
+            token_data = response.json()
+            token = token_data["access_token"]
+            redirect_response = RedirectResponse(url="/docs")
+            redirect_response.set_cookie(
+                key="Authorization",
+                value=f"Bearer {token}",
+                httponly=True,
+                max_age=1800,
+                expires=1800,
+            )
+            return redirect_response
+        else:
+            raise HTTPException(status_code=response.status_code, detail=response.json())
+
+    except Exception as e:
+        import traceback
+        print(f"Error: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        return Response(headers={"WWW-Authenticate": "Basic"}, status_code=401)
 
 
-@api_app.get("/", response_model=dict)
-async def index():
-    return {"message": "Welcome to the ECM Device Server API"}
+@api_app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    html_content = get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title="Custom API Docs",
+    )
+    html_content += """
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // Obtener el valor de la cookie Authorization
+            const cookieValue = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('Authorization='))
+                ?.split('=')[1];
+            if (cookieValue) {
+                const token = decodeURIComponent(cookieValue.replace("Bearer%20", ""));
+                // Configurar token en Swagger UI automáticamente
+                window.ui.preauthorizeApiKey("bearer", token);
+            } else {
+                console.log("No se encontró la cookie Authorization.");
+            }
+        });
+    </script>
+    """
+    return HTMLResponse(content=html_content)
+
+
+@api_app.get("/secure")
+async def secure_access(request: Request):
+    user = request.state.user
+    return {"message": f"Welcome {user.get('sub')}, this is a secure endpoint."}
+
+
+if __name__ == "__main__":
+    uvicorn.run("api_app:api_app", host="0.0.0.0", port=5000, reload=True)

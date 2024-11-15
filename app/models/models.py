@@ -1,28 +1,54 @@
 from typing import Optional, List
 
-from beanie import Document, Indexed
+from beanie import Document, Indexed, Link
 from pydantic import Field, EmailStr
 from datetime import datetime
 
-from app.models.schemas import Preferences, ContactInfo, Location, PhotoEvidence, IncidentLocation
+from app.models.schemas import Preferences, ContactInfo, Location, PhotoEvidence, IncidentLocation, \
+    AccessControlEmbedded
+
+
+class Role(Document):
+    description: str
+    access_control: List[AccessControlEmbedded] = []
+
+    class Settings:
+        name = "roles"
+
+
+class Resource(Document):
+    resource_name: str  # Unique identifier (e.g., "users")
+    description: str  # Description of what this resource represents
+
+    class Settings:
+        name = "resources"
+
+
+class Permission(Document):
+    permission_name: str  # Unique identifier for the permission (e.g., "create")
+    description: str  # Description of the permission
+
+    class Settings:
+        name = "permissions"
 
 
 class User(Document):
-    user_id: str = Field(unique=True)
-    username: str = Indexed(str, unique=True)
-    email: EmailStr = Indexed(unique=True)
-    password_hash: str
-    full_name: Optional[str]
-    role: str = "inspector"
+    first_name: str
+    middle_name: Optional[str] = None
+    last_name: str
+    second_last_name: Optional[str] = None
+    email: EmailStr = Field(unique=True)
+    password: str
+    role: Link[Role]
     status: str = "active"
     date_created: datetime = Field(default_factory=datetime.utcnow)
-    last_login: Optional[datetime]
+    last_login: Optional[datetime] = None
     preferences: Preferences = Preferences()
-    contact_info: Optional[ContactInfo]
+    contact_info: Optional[ContactInfo] = None
     permissions: List[str] = []
 
     class Settings:
-        collection = "users"
+        name = "users"
 
 
 class ActivityLog(Document):
@@ -33,7 +59,7 @@ class ActivityLog(Document):
     report_id: Optional[str]  # To reference a report if needed
 
     class Settings:
-        collection = "activity_logs"
+        name = "activity_logs"
 
 
 class Incident(Document):
@@ -49,4 +75,4 @@ class Incident(Document):
     locations: List[IncidentLocation] = []  # Locations related to the incident
 
     class Settings:
-        collection = "incidents"
+        name = "incidents"

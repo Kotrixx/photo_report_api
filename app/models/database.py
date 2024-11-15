@@ -1,7 +1,7 @@
 from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from app.models.models import User, ActivityLog, Incident
+from app.models.models import *
 
 
 MONGO_URL = (f"mongodb+srv://aingetk_user:aingetk_user"
@@ -14,4 +14,4 @@ async def init_db():
     db = client[DATABASE_NAME]
     # collection_names = await db.list_collection_names()
     # print(collection_names)
-    await init_beanie(database=db, document_models=[User, ActivityLog, Incident])
+    await init_beanie(database=db, document_models=[User, ActivityLog, Incident, Role, Resource, Permission])
