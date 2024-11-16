@@ -1,9 +1,9 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, Depends
 
 from app.models.models import Role, Resource, Permission, User
 from app.models.schemas import UserCreate, RoleCreate, RoleCreateRequest
 from app.routes.v1_0.user import router
-from app.utils.user_utils.user_utils import create_user, create_role, get_role_by_name
+from app.utils.user_utils.user_utils import create_user, create_role, get_role_by_name, get_current_user
 
 DEFAULT_ACCESS_CONTROL = {
     "admin": [
@@ -91,3 +91,8 @@ async def register_role(role_request: RoleCreateRequest):
         "message": "Role registered successfully",
         "role": new_role.dict()
     }
+
+
+@router.get("/me")
+async def get_current_user(user=Depends(get_current_user)):
+    return user

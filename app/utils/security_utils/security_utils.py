@@ -31,7 +31,7 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None, refresh: bool = True) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None, refresh: bool = False) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
@@ -116,6 +116,7 @@ class TokenBearer(HTTPBearer):
 
 
 class AccessTokenBearer(TokenBearer):
+
     def verify_token_data(self, token_data: dict) -> None:
         if token_data and token_data.get("refresh"):
             raise HTTPException(status_code=403, detail="Please provide an access token")

@@ -19,7 +19,7 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Permitir rutas públicas
-        if request.url.path in ["/login", "/v1.0/security/token", "/docs"]:
+        if request.url.path in ["/login", "/v1.0/security/login", "/docs"]:
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization")
@@ -46,27 +46,4 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(status_code=401, content={"detail": "Unexpected error"})
 
         return await call_next(request)
-
-
-class CookieToHeaderMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Obtener el token de la cookie
-        auth_cookie = request.cookies.get("Authorization")
-
-        # Si no hay token en la cookie, continuar normalmente
-        if not auth_cookie:
-            return await call_next(request)
-
-        # Crear nuevos encabezados basados en los existentes
-        new_headers = Headers({**request.headers, "Authorization": auth_cookie})
-
-        # Crear una nueva solicitud con los encabezados actualizados
-        request = Request(
-            scope={**request.scope, "headers": new_headers.raw},
-            receive=request._receive
-        )
-
-        # Continuar con el procesamiento de la solicitud
-        return await call_next(request)
-
 

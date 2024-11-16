@@ -1,7 +1,7 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, Depends
 from app.models.models import User, Role
 from app.models.schemas import UserCreate, RoleCreate
-from app.utils.security_utils.security_utils import get_password_hash
+from app.utils.security_utils.security_utils import get_password_hash, AccessTokenBearer
 
 
 async def create_role(role_data: RoleCreate):
@@ -46,3 +46,9 @@ async def create_user(user_data: UserCreate):
 async def get_role_by_name(role_name: str):
     role = await Role.find_one(Role.description == role_name)
     return role
+
+
+async def get_current_user(token_details: dict = Depends(AccessTokenBearer())):
+    user_email = token_details['sub']
+    user = await User.find_one(User.email == user_email)
+    return user

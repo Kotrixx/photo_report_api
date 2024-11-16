@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.security import OAuth2PasswordBearer
 from starlette.responses import HTMLResponse, RedirectResponse, JSONResponse
-from app.middleware.auth_middleware import AuthMiddleware, CookieToHeaderMiddleware
+from app.middleware.auth_middleware import AuthMiddleware
+from app.middleware.cors_middleware import cors_middleware
 from app.middleware.logging_middleware import request_logger
 from app.models.database import init_db
 from app.routes.v1_0.device import device_api as device_routes
@@ -24,24 +25,6 @@ async def app_lifespan(app: FastAPI):
 
 api_app = FastAPI(lifespan=app_lifespan)
 
-origins = [
-    "http://localhost",
-    "http://localhost:5000",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5000",
-    "https://test-hosting-map.web.app"
-
-]
-
-api_app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 def config():
     api_app.include_router(device_routes.router, prefix="/v1.0")
@@ -56,7 +39,8 @@ config()
 
 # Configurar middleware para logging
 api_app.middleware("http")(request_logger)
-
+api_app.middleware("http")(cors_middleware)
+api_app.add_middleware(AuthMiddleware)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
@@ -98,39 +82,6 @@ async def login(request: Request):
         print(f"Error: {e}")
         print(f"Traceback: {traceback.format_exc()}")
         return Response(headers={"WWW-Authenticate": "Basic"}, status_code=401)
-
-
-@api_app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui_html():
-    html_content = get_swagger_ui_html(
-        openapi_url="/openapi.json",
-        title="Custom API Docs",
-    )
-    html_content += """
-    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            // Obtener el valor de la cookie Authorization
-            const cookieValue = document.cookie
-                .split('; ')
-                .find(row => row.startsWith('Authorization='))
-                ?.split('=')[1];
-            if (cookieValue) {
-                const token = decodeURIComponent(cookieValue.replace("Bearer%20", ""));
-                // Configurar token en Swagger UI automáticamente
-                window.ui.preauthorizeApiKey("bearer", token);
-            } else {
-                console.log("No se encontró la cookie Authorization.");
-            }
-        });
-    </script>
-    """
-    return HTMLResponse(content=html_content)
-
-
-@api_app.get("/secure")
-async def secure_access(request: Request):
-    user = request.state.user
-    return {"message": f"Welcome {user.get('sub')}, this is a secure endpoint."}
 
 
 if __name__ == "__main__":
