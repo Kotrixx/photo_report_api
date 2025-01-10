@@ -2,10 +2,14 @@ from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.models.models import *
+from urllib.parse import quote_plus
 
 
-MONGO_URL = (f"mongodb+srv://aingetk_user:aingetk_user"
-             f"@cluster0.ek0es.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+USERNAME = quote_plus("kotsbw03")
+PASSWORD = quote_plus("kots.bw03")
+
+MONGO_URL = (f"mongodb+srv://{USERNAME}:{PASSWORD}"
+             f"@cluster0.qj1v8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 DATABASE_NAME = "photo_report"
 
 

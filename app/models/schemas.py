@@ -59,9 +59,9 @@ class UserCreate(BaseModel):
     role: str
 
 
-class RoleCreate(BaseModel):
+class RoleBaseModel(BaseModel):
     role_name: str
-    permissions: Optional[List[str]] = []
+    permissions: Optional[List[dict]]
 
 
 class AccessControlEmbedded(BaseModel):
@@ -81,3 +81,14 @@ class LoginData(BaseModel):
 class RoleCreateRequest(BaseModel):
     description: str
     access_control: List[AccessControlEmbedded]
+
+
+class ResourceBaseModel(BaseModel):
+    resource_name: str
+    description: Optional[str] = None
+
+
+class UserResponse(BaseModel):
+    username: str
+    email: EmailStr
+    roles: List[str]

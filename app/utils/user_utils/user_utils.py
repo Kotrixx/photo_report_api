@@ -1,19 +1,7 @@
 from fastapi import HTTPException, Depends
 from app.models.models import User, Role
-from app.models.schemas import UserCreate, RoleCreate
+from app.models.schemas import UserCreate, RoleBaseModel
 from app.utils.security_utils.security_utils import get_password_hash, AccessTokenBearer
-
-
-async def create_role(role_data: RoleCreate):
-    # Check if the role already exists
-    existing_role = await Role.find_one(Role.role_name == role_data.role_name)
-    if existing_role:
-        raise HTTPException(status_code=400, detail="Role already exists")
-
-    # Create and save the new role
-    new_role = Role(role_name=role_data.role_name, permissions=role_data.permissions)
-    await new_role.insert()
-    return new_role
 
 
 async def create_user(user_data: UserCreate):
@@ -43,12 +31,45 @@ async def create_user(user_data: UserCreate):
     return new_user
 
 
-async def get_role_by_name(role_name: str):
-    role = await Role.find_one(Role.description == role_name)
-    return role
-
-
 async def get_current_user(token_details: dict = Depends(AccessTokenBearer())):
     user_email = token_details['sub']
     user = await User.find_one(User.email == user_email)
     return user
+
+
+async def get_user_by_email(email: str):
+    user = await User.find_one(User.email == email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+async def get_all_users():
+    users = await User.find_all().to_list()
+    return users
+
+
+async def update_user(email: str, user_data: UserCreate):
+    user = await User.find_one(User.email == email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Actualizar campos si se proporcionan
+    user.username = user_data.username or user.username
+    user.roles = user_data.roles or user.roles
+
+    # Solo actualizar la contraseña si se proporciona
+    if user_data.password:
+        user.password = bcrypt.hash(user_data.password)
+
+    await user.save()
+    return user
+
+
+async def delete_user(email: str):
+    user = await User.find_one(User.email == email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await user.delete()
+    return {"message": "User deleted successfully"}

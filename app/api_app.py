@@ -4,6 +4,7 @@ import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.security import OAuth2PasswordBearer
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import HTMLResponse, RedirectResponse, JSONResponse
 from app.middleware.auth_middleware import AuthMiddleware
 from app.middleware.cors_middleware import cors_middleware
@@ -39,8 +40,28 @@ config()
 
 # Configurar middleware para logging
 api_app.middleware("http")(request_logger)
-api_app.middleware("http")(cors_middleware)
-api_app.add_middleware(AuthMiddleware)
+origins = [
+    "http://localhost",
+    "http://localhost:5000",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5000",
+    "https://test-hosting-map.web.app",
+]
+
+api_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configure Trusted Hosts
+api_app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "*"]
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 

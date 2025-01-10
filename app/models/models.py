@@ -9,8 +9,8 @@ from app.models.schemas import Preferences, ContactInfo, Location, PhotoEvidence
 
 
 class Role(Document):
-    description: str
-    access_control: List[AccessControlEmbedded] = []
+    role_name: str
+    access_control: List[dict]
 
     class Settings:
         name = "roles"
@@ -22,14 +22,6 @@ class Resource(Document):
 
     class Settings:
         name = "resources"
-
-
-class Permission(Document):
-    permission_name: str  # Unique identifier for the permission (e.g., "create")
-    description: str  # Description of the permission
-
-    class Settings:
-        name = "permissions"
 
 
 class User(Document):
@@ -45,7 +37,7 @@ class User(Document):
     last_login: Optional[datetime] = None
     preferences: Preferences = Preferences()
     contact_info: Optional[ContactInfo] = None
-    permissions: List[str] = []
+    permissions: List[str]
 
     class Settings:
         name = "users"
@@ -71,8 +63,8 @@ class Incident(Document):
     action_plan: Optional[str]  # Plan to resolve the incident
     resolution_deadline: Optional[datetime]  # Deadline for incident resolution
     status: str = "Pending"  # Status of the incident
-    photo_evidence: List[PhotoEvidence] = []  # List of photos related to the incident
-    locations: List[IncidentLocation] = []  # Locations related to the incident
+    photo_evidence: List[PhotoEvidence]  # List of photos related to the incident
+    locations: List[IncidentLocation] # Locations related to the incident
 
     class Settings:
         name = "incidents"
