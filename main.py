@@ -1,16 +1,34 @@
-# This is a sample Python script.
+import bcrypt
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+# Función para encriptar una contraseña
+def encriptar_contraseña(contraseña):
+    # Convertir la contraseña a bytes
+    contraseña_bytes = contraseña.encode('utf-8')
+    # Generar el salt
+    salt = bcrypt.gensalt()
+    # Crear el hash
+    hash_contraseña = bcrypt.hashpw(contraseña_bytes, salt)
+    return hash_contraseña
 
+# Función para verificar una contraseña
+def verificar_contraseña(contraseña, hash_guardado):
+    # Convertir la contraseña a bytes
+    contraseña_bytes = contraseña.encode('utf-8')
+    # Verificar la contraseña
+    return bcrypt.checkpw(contraseña_bytes, hash_guardado)
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+# Ejemplo de uso
+if __name__ == "__main__":
+    # Solicitar la contraseña al usuario
+    contraseña_original = input("Introduce tu contraseña: ")
 
+    # Encriptar la contraseña
+    hash_generado = encriptar_contraseña(contraseña_original)
+    print(f"Hash generado: {hash_generado.decode('utf-8')}")
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    # Verificar la contraseña
+    contraseña_verificar = input("Vuelve a introducir tu contraseña para verificar: ")
+    if verificar_contraseña(contraseña_verificar, hash_generado):
+        print("¡Contraseña verificada con éxito!")
+    else:
+        print("La contraseña no coincide.")

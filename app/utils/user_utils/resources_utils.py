@@ -24,6 +24,7 @@ async def get_resource(resource_data: ResourceBaseModel):
 
 
 async def get_all_resources():
+    print("get_all_resources")
     resources = await Resource.find_all().to_list()
     return resources
 

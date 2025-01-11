@@ -18,4 +18,4 @@ async def init_db():
     db = client[DATABASE_NAME]
     # collection_names = await db.list_collection_names()
     # print(collection_names)
-    await init_beanie(database=db, document_models=[User, ActivityLog, Incident, Role, Resource, Permission])
+    await init_beanie(database=db, document_models=[User, ActivityLog, Incident, Role, Resource])

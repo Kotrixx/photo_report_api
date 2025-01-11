@@ -37,7 +37,6 @@ class User(Document):
     last_login: Optional[datetime] = None
     preferences: Preferences = Preferences()
     contact_info: Optional[ContactInfo] = None
-    permissions: List[str]
 
     class Settings:
         name = "users"

@@ -1,7 +1,10 @@
 from fastapi import HTTPException, Depends
+from passlib.handlers.bcrypt import bcrypt
+
 from app.models.models import User, Role
 from app.models.schemas import UserCreate, RoleBaseModel
 from app.utils.security_utils.security_utils import get_password_hash, AccessTokenBearer
+from app.utils.user_utils.role_utils import get_role
 
 
 async def create_user(user_data: UserCreate):
@@ -14,7 +17,7 @@ async def create_user(user_data: UserCreate):
     hashed_password = get_password_hash(user_data.password)
 
     # Verificar si el rol existe
-    role = await get_role_by_name(user_data.role)
+    role = await get_role(user_data.role)
     if not role:
         raise HTTPException(status_code=400, detail=f"Role '{user_data.role}' does not exist")
     # Create and save the new user
