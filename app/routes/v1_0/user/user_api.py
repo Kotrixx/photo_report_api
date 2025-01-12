@@ -17,7 +17,7 @@ async def register_user(user_data: UserCreate):
 
 
 @router.get("/me")
-async def get_current_user():
+async def get_current_api():
     user = await get_current_user()
     return user
 

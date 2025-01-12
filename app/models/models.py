@@ -4,9 +4,7 @@ from beanie import Document, Indexed, Link
 from pydantic import Field, EmailStr
 from datetime import datetime
 
-from app.models.schemas import Preferences, ContactInfo, Location, PhotoEvidence, IncidentLocation, \
-    AccessControlEmbedded
-
+from app.models.schemas import Preferences, ContactInfo, Location, PhotoEvidence, IncidentLocation
 
 class Role(Document):
     role_name: str
