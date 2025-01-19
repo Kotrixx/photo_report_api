@@ -1,5 +1,7 @@
 from typing import List
 
+from starlette.requests import Request
+
 from app.models.models import Role, Resource
 from app.models.schemas import UserCreate, UserResponse, RoleBaseModel, ResourceBaseModel
 from app.routes.v1_0.user import router
@@ -7,7 +9,7 @@ from app.utils.user_utils.resources_utils import create_resource, get_resource, 
     delete_resource
 from app.utils.user_utils.role_utils import create_role, get_role, get_all_roles, update_role, delete_role
 from app.utils.user_utils.user_utils import get_current_user, create_user, get_all_users, get_user_by_email, \
-    update_user, delete_user
+    update_user, delete_user, get_current_user_from_request
 
 
 @router.post("/register")
@@ -17,9 +19,12 @@ async def register_user(user_data: UserCreate):
 
 
 @router.get("/me")
-async def get_current_api():
-    user = await get_current_user()
-    return user
+async def get_current_api(request: Request):
+    user = await get_current_user_from_request(request)
+    if user is None:
+        return {"message": "User not found", "code": 404}
+    else:
+        return user
 
 
 @router.get("/", response_model=List[UserResponse])

@@ -1,9 +1,9 @@
+from urllib.parse import quote_plus
+
 from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.models.models import *
-from urllib.parse import quote_plus
-
 
 USERNAME = quote_plus("kotsbw03")
 PASSWORD = quote_plus("kots.bw03")
@@ -18,4 +18,7 @@ async def init_db():
     db = client[DATABASE_NAME]
     # collection_names = await db.list_collection_names()
     # print(collection_names)
-    await init_beanie(database=db, document_models=[User, ActivityLog, Incident, Role, Resource])
+    await init_beanie(database=db,
+                      document_models=[User, ActivityLog, Incident,
+                                       Role, Resource, RevokedToken, FailedLogin]
+                      )

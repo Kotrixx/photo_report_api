@@ -1,19 +1,31 @@
 # app/routes/auth.py
-from datetime import timedelta, datetime
+import os
+from datetime import timedelta, datetime, timezone
 
+import jwt
+from cryptography.fernet import Fernet
+from fastapi import APIRouter
 from fastapi import Depends, HTTPException, status
+from fastapi import Request
 from fastapi.security import OAuth2PasswordRequestForm, HTTPBasicCredentials, HTTPBasic
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import RedirectResponse, JSONResponse
 
 from app.models.models import User
 from app.models.schemas import Token, LoginData
-from app.utils.security_utils.security_utils import verify_password, create_access_token, RefreshTokenBearer
-from fastapi import APIRouter
+from app.utils.security_utils.security_utils import verify_password, create_access_token, RefreshTokenBearer, \
+    decode_token, revoke_token
+from app.utils.user_utils.user_utils import register_failed_attempt, reset_failed_attempts, is_locked
 
+SECRET_KEY_FERNET = os.getenv("SECRET_KEY_FERNET")
+cipher = Fernet(SECRET_KEY_FERNET)
 
 router = APIRouter()
 security = HTTPBasic()  # Instancia de HTTPBasic
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+lockout_time_min = os.getenv("LOCKOUT_TIME_MIN")
+max_attempts = os.getenv("MAX_ATTEMPTS")  # Máximo de intentos permitidos
 
 
 async def authenticate_user(username: str, password: str):
@@ -25,6 +37,7 @@ async def authenticate_user(username: str, password: str):
         return None
     if not verify_password(password, user.password):
         return None  # Contraseña incorrecta
+    user.last_login = datetime.now(timezone.utc)
     return user
 
 
@@ -80,6 +93,45 @@ async def login(data: LoginData):
         )
 
 
+@router.post("/logout")
+async def logout(request: Request):
+    # Intentar obtener el token desde la cookie o el header
+    print("hola")
+    auth_cookie = request.cookies.get("Authorization")
+    auth_header = request.headers.get("Authorization")
+
+    token = None
+    if auth_header:
+        scheme, token = auth_header.split(" ")
+        response = {"detail": "Successfully logged out", "data": {"token": token, "type": "bearer"}, }
+    elif auth_cookie:
+        scheme, token = auth_cookie.split(" ")
+        response = RedirectResponse(url="/login_basic")
+        response.delete_cookie("Authorization")
+    if not token:
+        raise HTTPException(status_code=401, detail="Token not provided")
+
+    # Opcional: revocar el token
+    payload = decode_token(token)
+    jti = payload.get("jti")
+    await revoke_token(jti)
+    return response
+
+
+@router.post("/revoke_token")
+async def revoke_current_token(token: str):
+    try:
+        # Decodificar el token y obtener el jti
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        jti = payload.get("jti")
+        print(jti)
+        # Revocar el token
+        await revoke_token(jti)
+        return {"msg": "Token revoked successfully"}
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Invalid token")
+
+
 """
 @app.post("/login")
 async def login(username: str = Form(...), password: str = Form(...)):
@@ -122,18 +174,38 @@ async def get_new_acess_token(token_details: dict = Depends(RefreshTokenBearer()
 
 
 @router.get("/login_basic")
-async def login_basic(credentials: HTTPBasicCredentials = Depends(security)):
-    if not credentials:
-        # Solicitar credenciales básicas si no están presentes
-        return Response(headers={"WWW-Authenticate": "Basic"}, status_code=401)
+async def login_basic(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+    username = credentials.username
+    client_ip = request.client.host  # Obtener la dirección IP del cliente
+    print(client_ip)
+    # Verificar si el usuario o IP están bloqueados
+    user_locked, user_lockout_until = await is_locked(username=username)
+    ip_locked, ip_lockout_until = await is_locked(ip=client_ip)
+    if user_locked or ip_locked:
+        lockout_until = user_lockout_until or ip_lockout_until
+        return JSONResponse(
+            status_code=403,
+            content={
+                "message": "Account or IP is locked due to multiple failed login attempts.",
+                "lockout_until": lockout_until.isoformat(),
+            },
+        )
 
     # Validar las credenciales
-    user = await authenticate_user(credentials.username, credentials.password)
+    user = await authenticate_user(username, credentials.password)
     if not user:
-        # Solicitar credenciales nuevamente si son incorrectas
-        return Response(headers={"WWW-Authenticate": "Basic"}, status_code=401)
+        # Registrar intentos fallidos tanto por usuario como por IP
+        await register_failed_attempt(username=username, ip=client_ip,
+                                      lockout_time=int(lockout_time_min),
+                                      max_attempts=int(max_attempts))
+        return JSONResponse(
+            status_code=401, content={"message": "Incorrect email or password"}
+        )
 
-    # Generar el token JWT y redirigir
+    # Restablecer intentos fallidos en caso de éxito
+    await reset_failed_attempts(username=username, ip=client_ip)
+
+    # Crear el token JWT
     access_token = create_access_token(data={"sub": user.email})
 
     # Redirigir y establecer la cookie
@@ -141,7 +213,9 @@ async def login_basic(credentials: HTTPBasicCredentials = Depends(security)):
     response.set_cookie(
         "Authorization",
         value=f"Bearer {access_token}",
+        domain="localtest.me",
         httponly=True,
+        samesite="Strict",
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         expires=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )

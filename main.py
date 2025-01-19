@@ -1,4 +1,6 @@
 import bcrypt
+from cryptography.fernet import Fernet
+
 
 # Función para encriptar una contraseña
 def encriptar_contraseña(contraseña):
@@ -19,16 +21,6 @@ def verificar_contraseña(contraseña, hash_guardado):
 
 # Ejemplo de uso
 if __name__ == "__main__":
-    # Solicitar la contraseña al usuario
-    contraseña_original = input("Introduce tu contraseña: ")
-
-    # Encriptar la contraseña
-    hash_generado = encriptar_contraseña(contraseña_original)
-    print(f"Hash generado: {hash_generado.decode('utf-8')}")
-
-    # Verificar la contraseña
-    contraseña_verificar = input("Vuelve a introducir tu contraseña para verificar: ")
-    if verificar_contraseña(contraseña_verificar, hash_generado):
-        print("¡Contraseña verificada con éxito!")
-    else:
-        print("La contraseña no coincide.")
+    SECRET_KEY = Fernet.generate_key()
+    print(SECRET_KEY)
+    cipher = Fernet(SECRET_KEY)
