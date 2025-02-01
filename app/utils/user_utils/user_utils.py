@@ -132,6 +132,28 @@ async def is_locked(username: str = None, ip: str = None):
     return False, None
 
 
+def extract_metadata(request: Request) -> dict:
+    """
+    Extrae metadatos de la solicitud HTTP, opcionalmente incluyendo geolocalización.
+    :param request: El objeto Request de FastAPI.
+    :param include_geolocation: Si es True, incluye información de geolocalización.
+    :return: Un diccionario con los metadatos.
+    """
+    client_ip = request.client.host  # Dirección IP del cliente
+    user_agent = request.headers.get("user-agent")  # User-Agent
+    referer = request.headers.get("referer")  # Página de origen (si existe)
+    accept_language = request.headers.get("accept-language")  # Idioma preferido
+
+    metadata = {
+        "ip": client_ip,
+        "user_agent": user_agent,
+        "referer": referer,
+        "accept_language": accept_language,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    return metadata
+
+
 async def register_failed_attempt(username: str, ip: str, lockout_time: str, max_attempts: str):
     now = datetime.now(timezone.utc)
     failed_entry = await FailedLogin.find_one({"username": username, "ip": ip})

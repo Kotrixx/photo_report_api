@@ -15,7 +15,8 @@ from starlette import status
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.models.models import RevokedToken
+from app.models.models import RevokedToken, User
+from app.models.schemas import LoginData
 
 # Environment Variables
 load_dotenv()
@@ -48,6 +49,53 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None, r
         key=SECRET_KEY,
         algorithm=ALGORITHM
     )
+
+
+async def get_user_and_identifier(data: LoginData) -> Tuple[User, str]:
+    """
+    Busca el usuario según el identificador proporcionado (username o email).
+    Si no se encuentra el usuario, se lanza HTTPException con status 404.
+    """
+    if data.username is not None:
+        query = (User.username == data.username)
+        identifier = data.username
+    elif data.email is not None:
+        query = (User.email == data.email)
+        identifier = data.email
+    else:
+        # Esta situación no debería ocurrir porque el schema ya valida el input
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se proporcionó un identificador válido."
+        )
+
+    user = await User.find_one(query)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado."
+        )
+
+    return user, identifier
+
+def generate_tokens(user: User, identifier: str) -> dict:
+    """
+    Genera el access token y refresh token para el usuario.
+    """
+    access_token = create_access_token(
+        data={"sub": identifier, "user_uid": str(user.id)},
+        expires_delta=timedelta(minutes=30)
+    )
+    refresh_token = create_access_token(
+        data={"sub": identifier, "user_uid": str(user.id)},
+        expires_delta=timedelta(days=7),
+        refresh=True
+    )
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
 
 
 def create_refresh_token(data: dict) -> str:
@@ -276,7 +324,6 @@ class BasicAuth(SecurityBase):
     """
     Class to handle basic authentication for the API documentation page.
     """
-
     def __init__(self, scheme_name: str = None, auto_error: bool = True):
         self.scheme_name = scheme_name or self.__class__.__name__
         self.model = SecurityBase()

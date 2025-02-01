@@ -25,10 +25,10 @@ class Resource(Document):
 
 class User(Document):
     first_name: str
-    middle_name: Optional[str] = None
     last_name: str
     second_last_name: Optional[str] = None
     email: EmailStr = Field(unique=True)
+    username: Optional[str] = None
     password: str
     role: Link[Role]
     status: str = "active"

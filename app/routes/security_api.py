@@ -12,9 +12,10 @@ from starlette.responses import RedirectResponse, JSONResponse
 
 from app.models.models import User
 from app.models.schemas import Token, LoginData
+from app.utils.log_utils import log_auth_attempt
 from app.utils.security_utils.security_utils import verify_password, create_access_token, RefreshTokenBearer, \
-    decode_token, revoke_token
-from app.utils.user_utils.user_utils import register_failed_attempt, reset_failed_attempts, is_locked
+    decode_token, revoke_token, get_user_and_identifier, generate_tokens
+from app.utils.user_utils.user_utils import register_failed_attempt, reset_failed_attempts, is_locked, extract_metadata
 
 SECRET_KEY_FERNET = os.getenv("SECRET_KEY_FERNET")
 cipher = Fernet(SECRET_KEY_FERNET)
@@ -56,41 +57,39 @@ async def custom_http_basic(credentials: HTTPBasicCredentials = Depends(security
 
 
 @router.post("/login")
-async def login(data: LoginData):
-    # Replace with your actual user verification (e.g., database check)
-    print(data.username)
-    print(data.password)
-    # check_user_exists()
-    user = await User.find_one(User.email == data.username)
-    if user is not None:
-        password_valid = verify_password(data.password, user.password)
-        if password_valid:
-            access_token = create_access_token(
-                data={"sub": data.username,
-                      "user_uid": str(user.id)},
-                expires_delta=timedelta(minutes=30))
+async def login(data: LoginData, request: Request):
+    # Crear un diccionario con los metadatos
+    metadata = extract_metadata(request)
 
-            refresh_token = create_access_token(
-                data={"sub": data.username,
-                      "user_uid": str(user.id)},
-                expires_delta=timedelta(days=7),
-                refresh=True
-            )
-            return {
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "token_type": "bearer",
-                "user": {
-                    "email": user.email,
-                    "uid": str(user.id)
-                }
-            }
-    else:
+    # 2. Obtener el usuario y el identificador (email o username)
+    user, identifier = await get_user_and_identifier(data)
+
+    # 3. Verificar la contraseña
+    if not verify_password(data.password, user.password):
+        # Guardar log de intento fallido
+        log_auth_attempt(
+            email_or_username=identifier,
+            success=False,
+            metadata=metadata
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Usuario o contraseña incorrectos.",
+            headers={"WWW-Authenticate": "Bearer"}
         )
+
+    # 4. Guardar log de intento exitoso
+    log_auth_attempt(
+        email_or_username=identifier,
+        success=True,
+        metadata=metadata
+    )
+
+    # 5. Generar tokens
+    tokens = generate_tokens(user, identifier)
+
+    # 6. Retornar tokens y datos de usuario
+    return {**tokens}
 
 
 @router.post("/logout")

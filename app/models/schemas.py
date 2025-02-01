@@ -51,7 +51,6 @@ class TokenData(BaseModel):
 
 class UserCreate(BaseModel):
     first_name: str
-    middle_name: Optional[str] = None
     last_name: str
     second_last_name: Optional[str] = None
     email: EmailStr
@@ -74,7 +73,8 @@ class TokenRefreshRequest(BaseModel):
 
 
 class LoginData(BaseModel):
-    username: str
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
     password: str
 
 
