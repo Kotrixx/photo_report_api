@@ -37,18 +37,15 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None, refresh: bool = False) -> str:
+def create_jwt_token(data: dict, expires_delta: timedelta, refresh: bool = False) -> str:
+    """
+    Crea un token JWT (access o refresh).
+    """
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    to_encode.update({"jti": str(uuid.uuid4())})
-    to_encode.update({"refresh": refresh})
+    expire = datetime.now(timezone.utc) + expires_delta
+    to_encode.update({"exp": expire, "jti": str(uuid.uuid4()), "refresh": refresh})
 
-    return jwt.encode(
-        payload=to_encode,
-        key=SECRET_KEY,
-        algorithm=ALGORITHM
-    )
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 async def get_user_and_identifier(data: LoginData) -> Tuple[User, str]:
@@ -78,73 +75,30 @@ async def get_user_and_identifier(data: LoginData) -> Tuple[User, str]:
 
     return user, identifier
 
+
 def generate_tokens(user: User, identifier: str) -> dict:
     """
-    Genera el access token y refresh token para el usuario.
+    Genera un par de tokens (access y refresh) para el usuario.
     """
-    access_token = create_access_token(
-        data={"sub": identifier, "user_uid": str(user.id)},
-        expires_delta=timedelta(minutes=30)
-    )
-    refresh_token = create_access_token(
-        data={"sub": identifier, "user_uid": str(user.id)},
-        expires_delta=timedelta(days=7),
-        refresh=True
-    )
+    user_id = str(user.id)
     return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
+        "access_token": create_jwt_token({"sub": identifier, "user_uid": user_id}, timedelta(minutes=30)),
+        "refresh_token": create_jwt_token({"sub": identifier, "user_uid": user_id}, timedelta(days=7), refresh=True),
         "token_type": "bearer"
     }
 
 
-def create_refresh_token(data: dict) -> str:
-    """
-    Create a refresh token with a longer expiration time.
-
-    Parameters:
-        data (dict): Data to encode in the token.
-
-    Returns:
-        str: Encoded JWT refresh token as a string.
-    """
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def decode_token(token: str) -> dict:
-    try:
-        payload = jwt.decode(
-            jwt=token,
-            key=SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
 async def decode_and_validate_token(token: str) -> dict:
+    """
+    Decodifica y valida un token JWT, asegurándose de que no esté revocado.
+    """
     try:
-        # Decodificar el token
-        payload = jwt.decode(
-            jwt=token,
-            key=SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
-
-        # Extraer el `jti` del payload
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         jti = payload.get("jti")
         if not jti:
             raise HTTPException(status_code=401, detail="Invalid token: missing jti")
 
-        # Verificar si el token está revocado
-        revoked_token = await RevokedToken.find_one(RevokedToken.jti == jti)
-        if revoked_token:
+        if await is_token_revoked(jti):
             raise HTTPException(status_code=401, detail="Token has been revoked")
 
         return payload
@@ -174,127 +128,58 @@ async def revoke_token(jti: str):
 
 
 async def is_token_revoked(jti: str) -> bool:
-    revoked_token = await RevokedToken.find_one(RevokedToken.jti == jti)
-    if revoked_token is None:
-        return False
-    else:
-        return True
+    return await RevokedToken.find_one(RevokedToken.jti == jti) is not None
+
+
+def extract_token_from_request(request: Request) -> str:
+    """
+    Extrae el token desde la cabecera o cookie de la solicitud.
+    """
+    auth_header = request.headers.get("Authorization")
+    auth_cookie = request.cookies.get("Authorization")
+
+    token = None
+    if auth_header:
+        parts = auth_header.split(" ")
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+    elif auth_cookie:
+        parts = auth_cookie.split(" ")
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+
+    if not token:
+        raise HTTPException(status_code=401, detail="No token found or invalid format")
+
+    return token
 
 
 async def perform_logout(request: Request) -> JSONResponse:
-    # Obtener el token desde el header o la cookie
-    auth_header = request.headers.get("Authorization")
-    auth_cookie = request.cookies.get("Authorization")
-
-    token = None
-    if auth_header:
-        try:
-            scheme, token = auth_header.split(" ")
-            if scheme.lower() != "bearer":
-                raise HTTPException(status_code=401, detail="Invalid token scheme")
-        except ValueError:
-            raise HTTPException(status_code=401, detail="Invalid Authorization header format")
-    elif auth_cookie:
-        try:
-            scheme, token = auth_cookie.split(" ")
-            if scheme.lower() != "bearer":
-                raise HTTPException(status_code=401, detail="Invalid token scheme")
-        except ValueError:
-            raise HTTPException(status_code=401, detail="Invalid Authorization cookie format")
-
-    if not token:
-        raise HTTPException(status_code=401, detail="No token found")
-
-    try:
-        # Decodificar el token y obtener el jti
-        payload = decode_token(token)
-        jti = payload.get("jti")
-        if not jti:
-            raise HTTPException(status_code=400, detail="Token is missing 'jti' claim")
-
-        # Revocar el token
-        await revoke_token(jti)
-
-        # Construir la respuesta JSON
-        response = JSONResponse({"detail": "Successfully logged out"})
-        response.delete_cookie("Authorization")
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to logout: {str(e)}")
-
-
-async def extract_and_validate_token(request: Request) -> Tuple[str, dict]:
     """
-    Extrae y valida un token JWT desde encabezados o cookies.
-
-    Args:
-        request (Request): Objeto de solicitud.
-
-    Returns:
-        Tuple[str, dict]: El token y su payload.
-
-    Raises:
-        HTTPException: Si el token es inválido, expirado o revocado.
+    Revoca el token del usuario y elimina la cookie de autenticación.
     """
-    token = None
-    auth_header = request.headers.get("Authorization")
-    auth_cookie = request.cookies.get("Authorization")
+    token = extract_token_from_request(request)
+    payload = await decode_and_validate_token(token)
 
-    # Extraer token desde encabezado o cookie
-    if auth_header:
-        try:
-            scheme, token = auth_header.split(" ")
-            if scheme.lower() != "bearer":
-                raise HTTPException(status_code=401, detail="Invalid token scheme in header")
-        except ValueError:
-            raise HTTPException(status_code=401, detail="Invalid Authorization header format")
-    elif auth_cookie:
-        try:
-            scheme, token = auth_cookie.split(" ")
-            if scheme.lower() != "bearer":
-                raise HTTPException(status_code=401, detail="Invalid token scheme in cookie")
-        except ValueError:
-            raise HTTPException(status_code=401, detail="Invalid Authorization cookie format")
+    await revoke_token(payload["jti"])
 
-    if not token:
-        raise HTTPException(status_code=401, detail="Token not found")
-
-    # Validar el token
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        jti = payload.get("jti")
-        if not jti:
-            raise HTTPException(status_code=400, detail="Token is missing 'jti'")
-        if await is_token_revoked(jti):
-            raise HTTPException(status_code=401, detail="Token has been revoked")
-        return token, payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    response = JSONResponse({"detail": "Successfully logged out"})
+    response.delete_cookie("Authorization")
+    return response
 
 
 class TokenBearer(HTTPBearer):
-    def __init__(self, auto_error: bool = True):
-        super().__init__(auto_error=auto_error)
-
     async def __call__(self, request: Request) -> dict:
         creds = await super().__call__(request)
         token = creds.credentials
-        try:
-            token_data = decode_and_validate_token(token)
-            if not self.token_valid(token):  # Correctly passing the token argument
-                raise HTTPException(status_code=403, detail="Invalid or expired token")
-        except Exception as e:
+
+        token_data = await decode_and_validate_token(token)
+
+        if not token_data:
             raise HTTPException(status_code=403, detail="Invalid or expired token")
 
         self.verify_token_data(token_data)
-        # Token is valid and not a refresh token
         return token_data
-
-    def token_valid(self, token: str) -> bool:
-        token_data = decode_and_validate_token(token)
-        return True if token_data is not None else False
 
     def verify_token_data(self, token_data: dict) -> None:
         raise NotImplementedError("Please Override this method in child classes")
@@ -305,18 +190,13 @@ class AccessTokenBearer(TokenBearer):
         if token_data.get("refresh"):
             raise HTTPException(status_code=403, detail="Please provide an access token")
 
-        jti = token_data.get("jti")
-        if not jti:
-            raise HTTPException(status_code=400, detail="Token is missing 'jti'")
-
-        # Verificar si el token ha sido revocado de forma asíncrona
-        if await is_token_revoked(jti):
+        if await is_token_revoked(token_data.get("jti", "")):
             raise HTTPException(status_code=401, detail="Token has been revoked")
 
 
 class RefreshTokenBearer(TokenBearer):
-    def verify_token_data(self, token_data: dict) -> None:
-        if token_data and not token_data.get("refresh"):
+    async def verify_token_data(self, token_data: dict) -> None:
+        if not token_data.get("refresh"):
             raise HTTPException(status_code=403, detail="Please provide a refresh token")
 
 
@@ -324,6 +204,7 @@ class BasicAuth(SecurityBase):
     """
     Class to handle basic authentication for the API documentation page.
     """
+
     def __init__(self, scheme_name: str = None, auto_error: bool = True):
         self.scheme_name = scheme_name or self.__class__.__name__
         self.model = SecurityBase()
@@ -343,5 +224,5 @@ class BasicAuth(SecurityBase):
                 return None
         return param
 
-basic_auth = BasicAuth(auto_error=False)
 
+basic_auth = BasicAuth(auto_error=False)

@@ -25,10 +25,6 @@ async def app_lifespan(app: FastAPI):
 
 
 # Configurar middleware para logging
-
-
-
-
 # oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 origins = [
