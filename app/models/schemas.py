@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional, List
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, HttpUrl
 
 
 class Preferences(BaseModel):
@@ -92,3 +92,22 @@ class UserResponse(BaseModel):
     username: str
     email: EmailStr
     roles: List[str]
+
+
+class Product(BaseModel):
+    name: str
+    description: Optional[str]
+    category: str
+    franchise: str
+    brand: str
+    price: float
+    stock: int
+    status: str = "available"  # ["available", "presale", "out_of_stock"]
+    tags: Optional[List[str]]
+    is_offer: bool = False
+    offer_price: Optional[float]
+    offer_start: Optional[datetime]
+    offer_end: Optional[datetime]
+    images: Optional[List[HttpUrl]]
+    createdAt: Optional[datetime]
+    updatedAt: Optional[datetime]

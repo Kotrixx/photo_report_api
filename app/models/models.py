@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 
 from beanie import Document, Link
-from pydantic import Field, EmailStr
+from pydantic import Field, EmailStr, HttpUrl
 
 from app.models.schemas import Preferences, ContactInfo, Location, PhotoEvidence, IncidentLocation
 
@@ -85,3 +85,24 @@ class FailedLogin(Document):
     class Settings:
         name = "failed_login"
 
+
+class Product(Document):
+    name: str
+    description: Optional[str]
+    category: str
+    franchise: str
+    brand: str
+    price: float
+    stock: int
+    status: str = "available"  # Options: ["available", "presale", "out_of_stock", "discontinued"]
+    tags: Optional[List[str]]
+    is_offer: bool = False
+    offer_price: Optional[float]
+    offer_start: Optional[datetime]
+    offer_end: Optional[datetime]
+    images: Optional[List[HttpUrl]]
+    createdAt: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    updatedAt: Optional[datetime] = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "products"  # MongoDB collection name

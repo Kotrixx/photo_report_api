@@ -10,7 +10,7 @@ PASSWORD = quote_plus("kots.bw03")
 
 MONGO_URL = (f"mongodb+srv://{USERNAME}:{PASSWORD}"
              f"@cluster0.qj1v8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-DATABASE_NAME = "photo_report"
+DATABASE_NAME = "ecommerce_onestore"
 
 
 async def init_db():

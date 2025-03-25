@@ -53,19 +53,19 @@ async def get_user_and_identifier(data: LoginData) -> Tuple[User, str]:
     Busca el usuario según el identificador proporcionado (username o email).
     Si no se encuentra el usuario, se lanza HTTPException con status 404.
     """
-    if data.username is not None:
-        query = (User.username == data.username)
-        identifier = data.username
-    elif data.email is not None:
+    if data.email is not None:
         query = (User.email == data.email)
         identifier = data.email
+    elif data.username is not None:
+        query = (User.username == data.username)
+        identifier = data.username
+        print('username')
     else:
         # Esta situación no debería ocurrir porque el schema ya valida el input
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No se proporcionó un identificador válido."
         )
-
     user = await User.find_one(query)
     if user is None:
         raise HTTPException(
