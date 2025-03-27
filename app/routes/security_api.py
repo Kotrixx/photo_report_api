@@ -15,8 +15,8 @@ from app.utils.security_utils.security_utils import (
     revoke_token, get_user_and_identifier, generate_tokens, perform_logout
 )
 from app.utils.user_utils.user_utils import (
-    register_failed_attempt, reset_failed_attempts, is_locked, extract_metadata,
-    authenticate_user
+    register_failed_attempt, reset_failed_attempts, is_locked,
+    authenticate_user, extract_metadata
 )
 
 # Cargar variables de entorno
@@ -24,7 +24,7 @@ SECRET_KEY_FERNET = os.getenv("SECRET_KEY_FERNET")
 cipher = Fernet(SECRET_KEY_FERNET)
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1))
 LOCKOUT_TIME_MIN = int(os.getenv("LOCKOUT_TIME_MIN", 5))
 MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", 5))
 
@@ -151,7 +151,7 @@ async def login_basic(request: Request, credentials: HTTPBasicCredentials = Depe
         domain="localtest.me",
         httponly=True,
         samesite="Strict",
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        expires=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES, # * 60,
+        expires=ACCESS_TOKEN_EXPIRE_MINUTES, # * 60,
     )
     return response

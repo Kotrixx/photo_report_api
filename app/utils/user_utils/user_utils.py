@@ -1,9 +1,11 @@
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Dict
 
 import jwt
 from fastapi import HTTPException, Depends, Request
 from passlib.context import CryptContext
+from pydantic import EmailStr
 
 from app.models.models import User, FailedLogin
 from app.models.schemas import UserCreate
@@ -15,6 +17,11 @@ from app.utils.user_utils.role_utils import get_role
 # Configuración de hashing de contraseñas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 logger = logging.getLogger(__name__)
+
+
+async def get_all_users():
+    users = await User.all()
+    return users
 
 
 async def get_user_by_email(email: str):
@@ -81,11 +88,14 @@ async def get_current_user_from_request(request: Request):
     """
     Obtiene el usuario actual desde el request.
     """
-    token = getattr(request.state, "token", None)
+    # token = getattr(request.state, "Bearer", None)
+    token = request.state.payload
+    # print("tokenadsad: ", token)
     if not token:
         raise HTTPException(status_code=401, detail="Authorization token is missing")
 
     payload = await get_token_payload(token)
+    print(payload)
     return await get_user_by_email(payload.get("sub"))
 
 
@@ -134,7 +144,7 @@ async def is_locked(email: str = None, ip: str = None):
     return False, None
 
 
-async def register_failed_attempt(email: str, ip: str, lockout_time: int, max_attempts: int):
+async def register_failed_attempt(email: EmailStr, ip: str, lockout_time: int, max_attempts: int):
     """
     Registra intentos fallidos y bloquea al usuario o IP si excede el límite.
     """
@@ -148,13 +158,14 @@ async def register_failed_attempt(email: str, ip: str, lockout_time: int, max_at
             failed_entry.lockout_until = now + timedelta(minutes=lockout_time)
         await failed_entry.save()
     else:
-        await FailedLogin.insert_one({
-            "email": email,
-            "ip": ip,
-            "attempts": 1,
-            "lockout_until": None,
-            "last_attempt": now
-        })
+        await FailedLogin.insert_one(
+            FailedLogin(
+                email=email,
+                ip=ip,
+                attempts=0,
+                lockout_until=None,
+                last_attempt=now, )
+        )
 
 
 async def reset_failed_attempts(email: str, ip: str):
@@ -164,3 +175,17 @@ async def reset_failed_attempts(email: str, ip: str):
     failed_entry = await FailedLogin.find_one({"email": email, "ip": ip})
     if failed_entry:
         await failed_entry.delete()
+
+
+def extract_metadata(request: Request) -> Dict[str, str]:
+    """
+    Extrae información relevante de la solicitud para auditar eventos.
+    """
+    metadata = {
+        "client_ip": request.client.host,
+        "user_agent": request.headers.get("User-Agent"),
+        "method": request.method,
+        "path": request.url.path,
+        "headers": dict(request.headers),  # Opcional: guarda todos los encabezados
+    }
+    return metadata

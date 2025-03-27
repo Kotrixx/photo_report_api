@@ -22,7 +22,7 @@ from app.models.schemas import LoginData
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 7))
 
 # Password hashing utility
@@ -131,7 +131,7 @@ async def is_token_revoked(jti: str) -> bool:
     return await RevokedToken.find_one(RevokedToken.jti == jti) is not None
 
 
-def extract_token_from_request(request: Request) -> str:
+async def extract_token_from_request(request: Request) -> str:
     """
     Extrae el token desde la cabecera o cookie de la solicitud.
     """

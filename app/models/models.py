@@ -77,7 +77,8 @@ class RevokedToken(Document):
 
 
 class FailedLogin(Document):
-    username: str  # Opcional, rastrear por usuario
+    email: EmailStr
+    username: Optional[str] = None
     ip: str        # Dirección IP del cliente
     attempts: int  # Contador de intentos fallidos
     lockout_until: datetime | None  # Tiempo de desbloqueo, si está bloqueado

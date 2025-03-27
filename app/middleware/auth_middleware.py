@@ -1,3 +1,4 @@
+import jwt
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -12,6 +13,7 @@ load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -34,13 +36,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.state.payload = payload
 
             # Verificar si el token ha sido revocado
-            jti = payload.get("jti")
+            print(payload)
+            jti = payload # .get("jti")
             if not jti or await is_token_revoked(jti):
                 raise HTTPException(status_code=401, detail="Token has been revoked")
 
         except HTTPException as e:
             return JSONResponse({"detail": e.detail}, status_code=e.status_code)
-
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token has expired")
         except Exception as e:
             logging.error(f"Unexpected error in AuthMiddleware: {e}", exc_info=True)
             return JSONResponse(
