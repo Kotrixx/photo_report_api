@@ -41,8 +41,10 @@ def create_jwt_token(data: dict, expires_delta: timedelta, refresh: bool = False
     """
     Crea un token JWT (access o refresh).
     """
+    print(f"expires delta: {expires_delta}")
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + expires_delta
+    print(f"expire {expire}")
     to_encode.update({"exp": expire, "jti": str(uuid.uuid4()), "refresh": refresh})
 
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -82,8 +84,15 @@ def generate_tokens(user: User, identifier: str) -> dict:
     """
     user_id = str(user.id)
     return {
-        "access_token": create_jwt_token({"sub": identifier, "user_uid": user_id}, timedelta(minutes=30)),
-        "refresh_token": create_jwt_token({"sub": identifier, "user_uid": user_id}, timedelta(days=7), refresh=True),
+        "access_token": create_jwt_token(
+            {"sub": identifier, "user_uid": user_id},
+            timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        ),
+        "refresh_token": create_jwt_token(
+            {"sub": identifier, "user_uid": user_id},
+            timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+            refresh=True
+        ),
         "token_type": "bearer"
     }
 

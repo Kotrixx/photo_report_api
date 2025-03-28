@@ -20,7 +20,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         """
         Middleware para autenticar usuarios mediante JWT.
         """
-
         # Conjunto de rutas públicas que no requieren autenticación
         public_routes = {"/login", "/login_basic", "/openapi.json"}
 
@@ -31,10 +30,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Intentar extraer y validar el token
         try:
             payload = await extract_token_from_request(request)
-
             # Almacenar el payload en el estado del request para reutilización
             request.state.payload = payload
-
             # Verificar si el token ha sido revocado
             print(payload)
             jti = payload # .get("jti")

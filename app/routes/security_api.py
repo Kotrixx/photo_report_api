@@ -93,7 +93,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
     await reset_failed_attempts(form_data.username, None)
     access_token = create_jwt_token(data={"sub": user.email},
-                                    expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+                                    expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+                                    )
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -104,7 +105,8 @@ async def get_new_access_token(token_details: dict = Depends(RefreshTokenBearer(
     """
     if datetime.fromtimestamp(token_details['exp']) > datetime.now():
         return {
-            "access_token": create_jwt_token(token_details),
+            "access_token": create_jwt_token(token_details,
+                                             ),
             "token_type": "bearer"
         }
     else:
@@ -151,7 +153,7 @@ async def login_basic(request: Request, credentials: HTTPBasicCredentials = Depe
         domain="localtest.me",
         httponly=True,
         samesite="Strict",
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES, # * 60,
-        expires=ACCESS_TOKEN_EXPIRE_MINUTES, # * 60,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES,  # * 60,
+        expires=ACCESS_TOKEN_EXPIRE_MINUTES,  # * 60,
     )
     return response
