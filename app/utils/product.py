@@ -1,29 +1,31 @@
 from datetime import datetime
+from typing import Tuple, Optional
+
 from bson import ObjectId
 
-from app.models.schemas import Product
+from app.models.schemas import ProductBaseModel
 from app.models.models import Product
 
-async def create_product(data: Product):
-    product_dict = data.dict()
-    product_dict["createdAt"] = datetime.utcnow()
-    product_dict["updatedAt"] = datetime.utcnow()
-    result = await Product.insert_one(product_dict)
-    return str(result.inserted_id)
+"""async def get_products(filters=None):
+    prod = Product.all()
+    print(prod)
+    return await prod.to_list()  # ← devuelve el resultado (dict)"""
 
-async def get_products(filters: dict = {}):
-    cursor = Product.find(filters)
-    return [dict(prod, _id=str(prod["_id"])) async for prod in cursor]
 
-async def update_product(product_id: str, data: dict):
-    data["updatedAt"] = datetime.utcnow()
-    await Product.update_one(
-        {"_id": ObjectId(product_id)}, {"$set": data}
-    )
-    return True
+async def get_products(filters=None, page: int = 1, limit: int = 10):
+    if filters is None:
+        filters = {}
 
-async def get_product_by_id(product_id: str):
-    product = await Product.find_one({"_id": ObjectId(product_id)})
-    if product:
-        product["_id"] = str(product["_id"])
-    return product
+    skip = (page - 1) * limit
+    query = Product.find(filters)
+
+    total = await query.count()
+    results = query.skip(skip).limit(limit)
+
+    products = [
+        {**product.model_dump(mode="json"), "_id": str(product.id)}
+        async for product in results
+    ]
+
+    return products, total
+

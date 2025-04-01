@@ -20,5 +20,5 @@ async def init_db():
     # print(collection_names)
     await init_beanie(database=db,
                       document_models=[User, ActivityLog, Incident,
-                                       Role, Resource, RevokedToken, FailedLogin]
+                                       Role, Resource, RevokedToken, FailedLogin, Product,]
                       )

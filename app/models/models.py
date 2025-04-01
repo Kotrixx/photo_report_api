@@ -89,19 +89,19 @@ class FailedLogin(Document):
 
 class Product(Document):
     name: str
-    description: Optional[str]
+    description: Optional[str] = None
     category: str
     franchise: str
     brand: str
     price: float
     stock: int
-    status: str = "available"  # Options: ["available", "presale", "out_of_stock", "discontinued"]
-    tags: Optional[List[str]]
+    status: str = "available"  # ✅ valor por defecto directamente
+    tags: Optional[List[str]] = None
     is_offer: bool = False
-    offer_price: Optional[float]
-    offer_start: Optional[datetime]
-    offer_end: Optional[datetime]
-    images: Optional[List[HttpUrl]]
+    offer_price: Optional[float] = None
+    offer_start: Optional[datetime] = None
+    offer_end: Optional[datetime] = None
+    images: Optional[List[HttpUrl]] = None
     createdAt: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updatedAt: Optional[datetime] = Field(default_factory=datetime.utcnow)
 

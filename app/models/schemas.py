@@ -94,7 +94,7 @@ class UserResponse(BaseModel):
     roles: List[str]
 
 
-class Product(BaseModel):
+class ProductBaseModel(BaseModel):
     name: str
     description: Optional[str]
     category: str
@@ -111,3 +111,20 @@ class Product(BaseModel):
     images: Optional[List[HttpUrl]]
     createdAt: Optional[datetime]
     updatedAt: Optional[datetime]
+
+
+class ProductCreateModel(ProductBaseModel):
+    pass
+
+
+class ProductUpdateModel(ProductBaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    price: Optional[float] = None
+    # todos los campos opcionales para que no obligue a enviar todo
+
+
+class ProductOutModel(ProductBaseModel):
+    id: str
+    createdAt: datetime
+    updatedAt: datetime

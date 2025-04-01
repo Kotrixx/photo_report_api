@@ -15,6 +15,7 @@ from app.models.database import init_db
 from app.routes import security_api as security_routes
 from app.routes.v1_0.device import device_api as device_routes
 from app.routes.v1_0.readings import readings_api as readings_routes
+from app.routes.v1_0.products import products_api as products_routes
 from app.routes.v1_0.user import user_api as user_routes
 from app.utils.security_utils.security_utils import BasicAuth, basic_auth
 
@@ -47,9 +48,9 @@ middleware = [
         TrustedHostMiddleware,
         allowed_hosts=["localhost", "127.0.0.1", "*"]
     ),
-    Middleware(
-        AuthMiddleware
-    )
+#    Middleware(
+#        AuthMiddleware
+#    )
 ]
 
 api_app = FastAPI(
@@ -68,6 +69,7 @@ def config():
     api_app.include_router(user_routes.router, prefix="/v1.0")
     # api_app.include_router(resources_routes.router, prefix="/v1.0")
     # api_app.include_router(role_routes.router, prefix="/v1.0")
+    api_app.include_router(products_routes.router, prefix="/v1.0")
 
 
 config()
