@@ -113,18 +113,38 @@ class ProductBaseModel(BaseModel):
     updatedAt: Optional[datetime]
 
 
-class ProductCreateModel(ProductBaseModel):
-    pass
+class ProductCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    category_id: str
+    franchise_id: str
+    brand_id: str
+    price: float
+    stock: int
+    is_offer: bool = False
+    offer_price: Optional[float] = None
+    offer_start: Optional[datetime] = None
+    offer_end: Optional[datetime] = None
+    images: Optional[List[HttpUrl]] = None
 
+class ProductUpdate(BaseModel):
+    name: Optional[str]
+    description: Optional[str]
+    price: Optional[float]
+    stock: Optional[int]
+    is_offer: Optional[bool]
+    offer_price: Optional[float]
+    offer_start: Optional[datetime]
+    offer_end: Optional[datetime]
+    images: Optional[List[HttpUrl]]
 
-class ProductUpdateModel(ProductBaseModel):
-    name: Optional[str] = None
-    category: Optional[str] = None
-    price: Optional[float] = None
-    # todos los campos opcionales para que no obligue a enviar todo
-
-
-class ProductOutModel(ProductBaseModel):
+class ProductResponse(ProductCreate):
     id: str
+    status: str
     createdAt: datetime
     updatedAt: datetime
+
+    class Config:
+        orm_mode = True
+
+

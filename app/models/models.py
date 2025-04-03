@@ -79,31 +79,66 @@ class RevokedToken(Document):
 class FailedLogin(Document):
     email: EmailStr
     username: Optional[str] = None
-    ip: str        # Dirección IP del cliente
+    ip: str  # Dirección IP del cliente
     attempts: int  # Contador de intentos fallidos
     lockout_until: datetime | None  # Tiempo de desbloqueo, si está bloqueado
-    last_attempt: datetime          # Último intento fallido
+    last_attempt: datetime  # Último intento fallido
+
     class Settings:
         name = "failed_login"
+
+
+class Brand(Document):
+    name: str
+    status: str = "active"
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        use_state_management = True
+        name = "brands"
+
+
+class Franchise(Document):
+    name: str
+    status: str = "active"
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        use_state_management = True
+        name = "franchises"
+
+
+class Category(Document):
+    name: str
+    status: str = "active"  # Se utilizará para borrado lógico (inactivo)
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        use_state_management = True
+        name = "categories"
 
 
 class Product(Document):
     name: str
     description: Optional[str] = None
-    category: str
-    franchise: str
-    brand: str
+    category: Link[Category]  # Relación con Category
+    franchise: Link[Franchise]  # Relación con Franchise
+    brand: Link[Brand]  # Relación con Brand
     price: float
     stock: int
-    status: str = "available"  # ✅ valor por defecto directamente
+    status: str = "active"  # Se mantiene activo o inactivo para borrado lógico
     tags: Optional[List[str]] = None
-    is_offer: bool = False
-    offer_price: Optional[float] = None
-    offer_start: Optional[datetime] = None
-    offer_end: Optional[datetime] = None
+    is_offer: bool = False  # Para preventas
+    offer_price: Optional[float] = None  # Precio con descuento en preventa
+    offer_start: Optional[datetime] = None  # Fecha de inicio de preventa
+    offer_end: Optional[datetime] = None  # Fecha final de preventa
     images: Optional[List[HttpUrl]] = None
-    createdAt: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    updatedAt: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    createdAt: datetime = Field(default_factory=datetime.utcnow)  # Fecha de creación
+    updatedAt: datetime = Field(default_factory=datetime.utcnow)
 
     class Settings:
+        use_state_management = True
         name = "products"  # MongoDB collection name
