@@ -4,7 +4,7 @@ from typing import Tuple, Optional, List
 from beanie import PydanticObjectId
 from bson import ObjectId
 
-from app.models.schemas import ProductBaseModel
+from app.models.schemas import ProductBaseModel, ProductCreate
 from app.models.models import Product, Category, Franchise, Brand
 
 """async def get_products(filters=None):
@@ -13,38 +13,25 @@ from app.models.models import Product, Category, Franchise, Brand
     return await prod.to_list()  # ← devuelve el resultado (dict)"""
 
 
-async def create_product(
-        category_id: PydanticObjectId,  # Moved here
-        franchise_id: PydanticObjectId,  # Moved here
-        brand_id: PydanticObjectId,  # Moved here
-        name: str,
-        description: Optional[str] = None,
-        price: float = None,
-        stock: int = None,
-        is_offer: bool = False,
-        offer_price: Optional[float] = None,
-        offer_start: Optional[datetime] = None,
-        offer_end: Optional[datetime] = None,
-        images: Optional[List[str]] = None,
+async def create_product(product_data: ProductCreate
 ) -> Product:
-    category = await Category.get(category_id)
-    franchise = await Franchise.get(franchise_id)
-    brand = await Brand.get(brand_id)
 
     product = Product(
-        name=name,
-        description=description,
-        category=category,
-        franchise=franchise,
-        brand=brand,
-        price=price,
-        stock=stock,
-        is_offer=is_offer,
-        offer_price=offer_price,
-        offer_start=offer_start,
-        offer_end=offer_end,
-        images=images,
+        name=product_data.name,
+        description=product_data.description,
+        category=product_data.category_id,
+        franchise=product_data.franchise_id,
+        brand=product_data.brand_id,
+        price=product_data.price,
+        stock=product_data.stock,
+        is_offer=product_data.is_offer,
+        offer_price=product_data.offer_price,
+        offer_start=product_data.offer_start,
+        offer_end=product_data.offer_end,
+        images=product_data.image_urls,
     )
+    print(product)
+
     await product.insert()
     return product
 

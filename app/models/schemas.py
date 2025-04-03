@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional, List
 
+from fastapi import UploadFile
 from pydantic import BaseModel, EmailStr, HttpUrl
 
 
@@ -125,7 +126,8 @@ class ProductCreate(BaseModel):
     offer_price: Optional[float] = None
     offer_start: Optional[datetime] = None
     offer_end: Optional[datetime] = None
-    images: Optional[List[HttpUrl]] = None
+    image_urls: Optional[List[str]]  # Aquí se guardarán las URLs de las imágenes
+
 
 class ProductUpdate(BaseModel):
     name: Optional[str]
@@ -138,6 +140,7 @@ class ProductUpdate(BaseModel):
     offer_end: Optional[datetime]
     images: Optional[List[HttpUrl]]
 
+
 class ProductResponse(ProductCreate):
     id: str
     status: str
@@ -148,3 +151,24 @@ class ProductResponse(ProductCreate):
         orm_mode = True
 
 
+class ProductResponse2(BaseModel):
+    id: str  # Convierte ObjectId a string
+    name: str
+    description: Optional[str] = None
+    category_id: str
+    franchise_id: str
+    brand_id: str
+    price: float
+    stock: int
+    status: str
+    tags: Optional[List[str]] = None
+    is_offer: bool
+    offer_price: Optional[float]
+    offer_start: Optional[datetime]
+    offer_end: Optional[datetime]
+    images: List[HttpUrl]
+    createdAt: datetime
+    updatedAt: datetime
+
+    class Config:
+        orm_mode = True  # Permite que se convierta automáticamente desde los documentos de Beanie
