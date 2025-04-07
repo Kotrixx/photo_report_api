@@ -136,6 +136,7 @@ class Product(Document):
     offer_start: Optional[datetime] = None  # Fecha de inicio de preventa
     offer_end: Optional[datetime] = None  # Fecha final de preventa
     images: Optional[List[HttpUrl]] = None
+    is_sealed: bool = False  # Añadido campo para indicar si el producto está sellado
     createdAt: datetime = Field(default_factory=datetime.utcnow)  # Fecha de creación
     updatedAt: datetime = Field(default_factory=datetime.utcnow)
 
