@@ -1,12 +1,13 @@
-from typing import Optional
-import cloudinary.uploader
+from datetime import datetime
+from typing import Optional, List
 
+import cloudinary.uploader
 from beanie import PydanticObjectId
-from bson import ObjectId
 from fastapi import UploadFile
 
-from app.models.schemas import ProductBaseModel, ProductCreate
-from app.models.models import Product, Category, Franchise, Brand
+from app.models.models import Product
+from app.models.schemas import ProductCreate
+
 
 # Función para crear un nuevo producto
 async def create_product(product_data: ProductCreate) -> Product:
@@ -52,9 +53,28 @@ async def deactivate_product(product_id: PydanticObjectId) -> Product:
 
 
 # Función para manejar la subida de imágenes
-async def handle_image_upload(image: Optional[UploadFile]) -> Optional[str]:
+async def handle_image_upload(image: Optional[UploadFile]) -> Optional[List[str]]:
     if image:
         content = await image.read()  # Leemos el archivo de la imagen
         upload_response = cloudinary.uploader.upload(content, resource_type="auto")
-        return upload_response['secure_url']  # Retornamos la URL de la imagen subida
+        return [upload_response['secure_url']]  # Retornamos la URL de la imagen subida
     return None
+
+
+def verificar_oferta_vencida(producto):
+    now = datetime.now()
+
+    # Si tiene oferta y una fecha de finalización (offer_end)
+    if producto.is_offer and producto.offer_end:
+        # Convertimos el campo offer_end a datetime
+        offer_end_date = datetime.fromisoformat(producto.offer_end)
+
+        # Si la fecha actual es mayor que la fecha de finalización de la oferta
+        if now > offer_end_date:
+            # Desactivamos la oferta
+            producto.is_offer = False
+            producto.offer_price = None  # Se puede poner el precio original en lugar de None si se prefiere
+            producto.offer_end = None  # Limpiamos la fecha de expiración
+            producto.offer_start = None  # Opcional: Limpiamos la fecha de inicio si es necesario
+
+    return producto

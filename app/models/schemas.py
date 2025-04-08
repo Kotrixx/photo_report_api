@@ -122,6 +122,8 @@ class ProductCreate(BaseModel):
     brand_id: str
     price: float
     stock: int
+    status: str
+    is_sealed: bool = False
     is_offer: bool = False
     offer_price: Optional[float] = None
     offer_start: Optional[datetime] = None
