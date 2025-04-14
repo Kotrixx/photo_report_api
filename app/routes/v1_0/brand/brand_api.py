@@ -5,13 +5,6 @@ from bson import ObjectId
 from datetime import datetime
 
 
-@router.post("/", response_model=dict, tags=["Brands"])
-async def create_brand(data: dict):
-    brand = Brand(**data)
-    await brand.insert()
-    return {"message": "Marca creada", "id": str(brand.id)}
-
-
 @router.get("/all", tags=["Brands"])
 async def list_brands_all():
     brands = await Brand.find().to_list()
@@ -27,9 +20,20 @@ async def list_brands():
 @router.get("/{brand_id}", tags=["Brands"])
 async def get_brand(brand_id: str):
     brand = await Brand.get(ObjectId(brand_id))
-    if not brand:  #or brand.status != "active":
+    if not brand:  # or brand.status != "active":
         raise HTTPException(status_code=404, detail="Marca no encontrada")
     return {**brand.model_dump(mode="json"), "_id": str(brand.id)}
+
+
+@router.post("/", response_model=dict, tags=["Brands"])
+async def create_brand(data: dict):
+    # Validación del estado
+    if data.get('status') not in ['active', 'inactive']:
+        raise HTTPException(status_code=400, detail="El estado debe ser 'active' o 'inactive'")
+
+    brand = Brand(**data)
+    await brand.insert()
+    return {"message": "Marca creada"}
 
 
 @router.put("/{brand_id}", tags=["Brands"])
@@ -38,11 +42,16 @@ async def update_brand(brand_id: str, data: dict):
     if not brand:
         raise HTTPException(status_code=404, detail="Marca no encontrada")
 
+    # Validación del estado
+    if 'status' in data and data['status'] not in ['active', 'inactive']:
+        raise HTTPException(status_code=400, detail="El estado debe ser 'active' o 'inactive'")
+
     for k, v in data.items():
         setattr(brand, k, v)
     brand.updatedAt = datetime.utcnow()
     await brand.save()
     return {"message": "Marca actualizada"}
+
 
 
 @router.delete("/{brand_id}", tags=["Brands"])
