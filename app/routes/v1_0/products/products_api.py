@@ -99,6 +99,8 @@ async def create_product_view(
         # Procesamos las imágenes y subimos a Cloudinary
         image_url = await handle_image_upload(images)
         print(image_url)
+        if status not in ['active', 'inactive']:
+            raise HTTPException(status_code=400, detail="El estado debe ser 'active' o 'inactive'")
 
         # Creamos los datos del producto
         product_data = ProductCreate(

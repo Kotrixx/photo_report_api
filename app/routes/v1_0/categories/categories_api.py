@@ -1,7 +1,7 @@
 from datetime import datetime
-from http.client import HTTPException
 
 from bson import ObjectId
+from fastapi import HTTPException
 
 from app.models.models import Category
 from app.routes.v1_0.categories import router
@@ -12,6 +12,9 @@ from app.routes.v1_0.categories import router
 async def create_category(data: dict):
     category = Category(**data)
     await category.insert()
+    if data.get('status') not in ['active', 'inactive']:
+        raise HTTPException(status_code=400, detail="El estado debe ser 'active' o 'inactive'")
+
     return {"message": "Categoría creada", "id": str(category.id)}
 
 
@@ -32,7 +35,7 @@ async def list_categories():
 @router.get("/{category_id}", tags=["Categories"])
 async def get_category(category_id: str):
     category = await Category.get(ObjectId(category_id))
-    if not category: #or category.status != "active":
+    if not category:  # or category.status != "active":
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
     return {**category.model_dump(mode="json"), "_id": str(category.id)}
 
@@ -43,6 +46,8 @@ async def update_category(category_id: str, data: dict):
     category = await Category.get(ObjectId(category_id))
     if not category:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    if data.get('status') not in ['active', 'inactive']:
+        raise HTTPException(status_code=400, detail="El estado debe ser 'active' o 'inactive'")
 
     for k, v in data.items():
         setattr(category, k, v)

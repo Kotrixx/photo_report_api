@@ -11,6 +11,10 @@ from fastapi import HTTPException
 async def create_franchise(data: dict):
     franchise = Franchise(**data)
     await franchise.insert()
+
+    if data.get('status') not in ['active', 'inactive']:
+        raise HTTPException(status_code=400, detail="El estado debe ser 'active' o 'inactive'")
+
     return {"message": "Franquicia creada", "id": str(franchise.id)}
 
 
@@ -39,6 +43,9 @@ async def update_franchise(franchise_id: str, data: dict):
     franchise = await Franchise.get(ObjectId(franchise_id))
     if not franchise:
         raise HTTPException(status_code=404, detail="Franquicia no encontrada")
+
+    if data.get('status') not in ['active', 'inactive']:
+        raise HTTPException(status_code=400, detail="El estado debe ser 'active' o 'inactive'")
 
     for k, v in data.items():
         setattr(franchise, k, v)
