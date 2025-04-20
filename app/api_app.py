@@ -1,25 +1,19 @@
 import uvicorn
-# from app.routes.v1_0.user import resources_api as resources_routes
-# from app.routes.v1_0.user import role_api as role_routes
 from fastapi import FastAPI, Depends
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-from fastapi.security import OAuth2PasswordBearer
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import RedirectResponse, JSONResponse
 
-from app.middleware.auth_middleware import AuthMiddleware
 from app.models.database import init_db
 from app.routes import security_api as security_routes
-
-from app.routes.v1_0.products import products_api as products_routes
-from app.routes.v1_0.user import user_api as user_routes
-from app.routes.v1_0.franchise import franchise_api as franchise_routes
 from app.routes.v1_0.brand import brand_api as brand_routes
 from app.routes.v1_0.categories import categories_api as categories_routes
-
+from app.routes.v1_0.franchise import franchise_api as franchise_routes
+from app.routes.v1_0.products import products_api as products_routes
+from app.routes.v1_0.user import user_api as user_routes
 from app.utils.security_utils.security_utils import BasicAuth, basic_auth
 
 
