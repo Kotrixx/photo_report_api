@@ -18,4 +18,4 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 COPY . /code/app
 
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8066", "-k", "uvicorn.workers.UvicornWorker", "app.api_app:api_app"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "-k", "uvicorn.workers.UvicornWorker", "app.api_app:api_app"]
