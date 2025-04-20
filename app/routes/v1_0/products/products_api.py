@@ -162,7 +162,8 @@ async def update_product_view(
 
         # Manejo de la imagen: Si no hay imagen, mantenemos la original. Si hay imagen, la subimos
         image_url = await handle_image_upload(images) or existing_product.images
-        print(image_url)
+        # print(image_url)
+        print(status)
         # Crear los datos para la actualización, usando valores existentes si no se proporcionan nuevos
         updated_data = {
             "name": name or existing_product.name,
@@ -183,7 +184,7 @@ async def update_product_view(
 
         # Actualizar el producto en la base de datos
         updated_product = await update_product(product_id, **updated_data)
-
+        print(updated_product)
         return {"message": "Producto actualizado exitosamente"}
 
     except Exception as e:
