@@ -3,7 +3,7 @@ from typing import Optional, List
 
 import cloudinary.uploader
 from beanie import PydanticObjectId
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 
 from app.models.models import Product
 from app.models.schemas import ProductCreate
@@ -78,3 +78,18 @@ def verificar_oferta_vencida(producto):
             producto.offer_start = None  # Opcional: Limpiamos la fecha de inicio si es necesario
 
     return producto
+
+
+def validate_offer_fields(is_offer, offer_start, offer_end):
+    if is_offer:
+        if not offer_start or not offer_end:
+            raise HTTPException(status_code=400,
+                                detail="Para activar oferta/preventa se deben proporcionar 'offer_start' y 'offer_end'.")
+    else:
+        if offer_start or offer_end:
+            raise HTTPException(status_code=400,
+                                detail="No debe proporcionar fechas de oferta si 'is_offer' está desactivado.")
+
+
+def apply_discount(price: float, percent: float) -> float:
+    return round(price * (1 - percent / 100), 2)

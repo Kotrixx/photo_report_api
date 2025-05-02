@@ -1,4 +1,5 @@
-from typing import Optional
+from datetime import datetime
+from typing import Optional, List
 
 from beanie import PydanticObjectId
 from fastapi import Query, Form, UploadFile, File, HTTPException
@@ -6,25 +7,19 @@ from fastapi import Query, Form, UploadFile, File, HTTPException
 from app.models.models import Product, Category, Brand, Franchise
 from app.models.schemas import ProductCreate
 from app.routes.v1_0.products import router
-from app.utils.product import create_product, update_product, handle_image_upload
+from app.utils.product import create_product, update_product, handle_image_upload, validate_offer_fields, apply_discount
 
 
+# Listar todos los productos (sin filtro de estado)
 @router.get("/all")
 async def get_products(
-        page: int = Query(1, ge=1),  # Página a consultar, valor predeterminado es 1
-        limit: int = Query(8, ge=1, le=100)  # Límite de productos por página, entre 1 y 100
+        page: int = Query(1, ge=1),
+        limit: int = Query(8, ge=1, le=100)
 ):
     try:
-        # Calcula el número de saltos (skip) y el límite
         skip = (page - 1) * limit
-
-        # Verifica que la consulta funcione correctamente
         products = await Product.find().skip(skip).limit(limit).to_list()
-
-        # Contar el total de productos
-        total_products = await Product.count()  # Asegúrate de que este método funcione
-
-        # Calculamos el total de páginas
+        total_products = await Product.count()
         total_pages = (total_products + limit - 1) // limit
 
         return {
@@ -38,19 +33,16 @@ async def get_products(
         raise HTTPException(status_code=500, detail=f"Error al obtener productos: {str(e)}")
 
 
-# Ruta para obtener productos activos
+# Listar productos activos
 @router.get("/")
 async def list_active_products(
-        page: int = Query(1, ge=1),  # Página a consultar, valor predeterminado es 1
-        limit: int = Query(8, ge=1, le=100)  # Límite de productos por página, entre 1 y 100
+        page: int = Query(1, ge=1),
+        limit: int = Query(8, ge=1, le=100)
 ):
     try:
-        # Obtener productos activos desde la base de datos
-        products = await Product.find({"status": "active"}).to_list()
-        # Contar el total de productos
-        total_products = await Product.count()  # Asegúrate de que este método funcione
-
-        # Calculamos el total de páginas
+        skip = (page - 1) * limit
+        products = await Product.find({"status": "active"}).skip(skip).limit(limit).to_list()
+        total_products = await Product.find({"status": "active"}).count()
         total_pages = (total_products + limit - 1) // limit
 
         return {
@@ -64,11 +56,95 @@ async def list_active_products(
         raise HTTPException(status_code=400, detail=f"Error al obtener los productos activos: {str(e)}")
 
 
-# Ruta para obtener un producto por ID
+# Buscar productos filtrados
+@router.get("/search")
+async def search_products(
+        q: Optional[str] = Query(None),
+        categoria: Optional[str] = Query(None),
+        en_preventa: Optional[bool] = Query(None),
+        page: int = Query(1, ge=1),
+        limit: int = Query(8, ge=1, le=100)
+):
+    try:
+        skip = (page - 1) * limit
+        query = {"status": "active"}
+
+        if q:
+            query["name"] = {"$regex": q, "$options": "i"}
+        if categoria:
+            query["category.name"] = categoria
+        if en_preventa is not None:
+            query["is_offer"] = en_preventa
+
+        products = await Product.find(query).skip(skip).limit(limit).to_list()
+        total_products = await Product.find(query).count()
+        total_pages = (total_products + limit - 1) // limit
+
+        return {
+            "page": page,
+            "limit": limit,
+            "total_products": total_products,
+            "total_pages": total_pages,
+            "products": products
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al buscar productos: {str(e)}")
+
+
+@router.get("/preventa")
+async def list_preventa_products(
+        page: int = Query(1, ge=1),
+        limit: int = Query(8, ge=1, le=100)
+):
+    try:
+        skip = (page - 1) * limit
+
+        query = {
+            "status": "active",
+            "is_offer": True,
+            "offer_end": {"$gte": datetime.utcnow()}  # Oferta que aún no vence
+        }
+
+        products = await Product.find(query).skip(skip).limit(limit).to_list()
+        total_products = await Product.find(query).count()
+        total_pages = (total_products + limit - 1) // limit
+
+        return {
+            "page": page,
+            "limit": limit,
+            "total_products": total_products,
+            "total_pages": total_pages,
+            "products": products
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al listar productos en preventa: {str(e)}")
+
+
+@router.get("/deadline")
+async def get_preventa_deadline():
+    try:
+        # Buscar productos en preventa activos
+        productos_en_preventa = await Product.find({
+            "status": "active",
+            "is_offer": True,
+            "offer_end": {"$gte": datetime.utcnow()}  # Solo si la oferta no venció
+        }).sort("offer_end").limit(1).to_list()
+
+        if not productos_en_preventa:
+            return {"deadline": None}
+
+        # Tomamos el producto con la fecha de fin más próxima
+        deadline = productos_en_preventa[0].offer_end
+
+        return {"deadline": deadline}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener fecha de preventa: {str(e)}")
+
+
+# Obtener un producto por ID
 @router.get("/{product_id}")
 async def get_product_by_id(product_id: PydanticObjectId):
     try:
-        # Buscar el producto por su ID
         product = await Product.get(product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Producto no encontrado")
@@ -77,32 +153,32 @@ async def get_product_by_id(product_id: PydanticObjectId):
         raise HTTPException(status_code=400, detail=f"Error al obtener el producto: {str(e)}")
 
 
-# Ruta para crear un nuevo producto
+# Crear un nuevo producto
 @router.post("/")
 async def create_product_view(
-        name: Optional[str] = Form(None),  # Nombre del producto (opcional)
-        description: Optional[str] = Form(None),  # Descripción del producto (opcional)
-        price: Optional[float] = Form(None),  # Precio del producto (opcional)
-        stock: Optional[int] = Form(None),  # Stock del producto (opcional)
-        category_id: Optional[str] = Form(None),  # ID de la categoría (opcional)
-        franchise_id: Optional[str] = Form(None),  # ID de la franquicia (opcional)
-        brand_id: Optional[str] = Form(None),  # ID de la marca (opcional)
-        is_offer: Optional[bool] = Form(None),  # Si tiene oferta (opcional)
-        offer_price: Optional[float] = Form(None),  # Precio con oferta (opcional)
-        offer_start: Optional[str] = Form(None),  # Fecha de inicio de oferta (opcional)
-        offer_end: Optional[str] = Form(None),  # Fecha de finalización de oferta (opcional)
-        is_sealed: Optional[bool] = Form(None),  # Si el producto es sellado (opcional)
-        images: Optional[UploadFile] = File(None),  # Imagen nueva (opcional)
-        status: Optional[str] = Form('inactive'),  # Estado del producto (activo/inactivo)
+        name: Optional[str] = Form(None),
+        description: Optional[str] = Form(None),
+        price: Optional[float] = Form(None),
+        stock: Optional[int] = Form(None),
+        category_id: Optional[str] = Form(None),
+        franchise_id: Optional[str] = Form(None),
+        brand_id: Optional[str] = Form(None),
+        is_offer: Optional[bool] = Form(None),
+        offer_price: Optional[float] = Form(None),
+        offer_start: Optional[str] = Form(None),
+        offer_end: Optional[str] = Form(None),
+        is_sealed: Optional[bool] = Form(None),
+        images: Optional[UploadFile] = File(None),
+        status: Optional[str] = Form('inactive')
 ):
     try:
-        # Procesamos las imágenes y subimos a Cloudinary
+        validate_offer_fields(is_offer, offer_start, offer_end)
+
         image_url = await handle_image_upload(images)
-        print(image_url)
+
         if status not in ['active', 'inactive']:
             raise HTTPException(status_code=400, detail="El estado debe ser 'active' o 'inactive'")
 
-        # Creamos los datos del producto
         product_data = ProductCreate(
             name=name,
             description=description,
@@ -116,55 +192,48 @@ async def create_product_view(
             offer_price=offer_price,
             offer_start=offer_start,
             offer_end=offer_end,
-            is_sealed=is_sealed,  # Incluimos el campo is_sealed
-            image_urls=image_url  # Guardamos las URLs de las imágenes
+            is_sealed=is_sealed,
+            image_urls=image_url
         )
-        # Crear el producto en la base de datos
         product = await create_product(product_data)
 
-        # Retorna la respuesta con los datos del producto
         return {"message": "Producto creado exitosamente", "product": product}
 
     except Exception as e:
-        # Manejar el error
         raise HTTPException(status_code=400, detail=f"Error al crear el producto: {str(e)}")
 
 
-# Ruta para actualizar un producto
+# Actualizar un producto
 @router.put("/{product_id}")
 async def update_product_view(
-        product_id: str,  # ID del producto que se va a actualizar
-        name: Optional[str] = Form(None),  # Nombre del producto (opcional)
-        description: Optional[str] = Form(None),  # Descripción del producto (opcional)
-        price: Optional[float] = Form(None),  # Precio del producto (opcional)
-        stock: Optional[int] = Form(None),  # Stock del producto (opcional)
-        category_id: Optional[str] = Form(None),  # ID de la categoría (opcional)
-        franchise_id: Optional[str] = Form(None),  # ID de la franquicia (opcional)
-        brand_id: Optional[str] = Form(None),  # ID de la marca (opcional)
-        is_offer: Optional[bool] = Form(None),  # Si tiene oferta (opcional)
-        offer_price: Optional[float] = Form(None),  # Precio con oferta (opcional)
-        offer_start: Optional[str] = Form(None),  # Fecha de inicio de oferta (opcional)
-        offer_end: Optional[str] = Form(None),  # Fecha de finalización de oferta (opcional)
-        is_sealed: Optional[bool] = Form(None),  # Si el producto es sellado (opcional)
-        images: Optional[UploadFile] = File(None),  # Imagen nueva (opcional)
-        status: Optional[str] = Form(None),  # Estado del producto (activo/inactivo)
+        product_id: str,
+        name: Optional[str] = Form(None),
+        description: Optional[str] = Form(None),
+        price: Optional[float] = Form(None),
+        stock: Optional[int] = Form(None),
+        category_id: Optional[str] = Form(None),
+        franchise_id: Optional[str] = Form(None),
+        brand_id: Optional[str] = Form(None),
+        is_offer: Optional[bool] = Form(None),
+        offer_price: Optional[float] = Form(None),
+        offer_start: Optional[str] = Form(None),
+        offer_end: Optional[str] = Form(None),
+        is_sealed: Optional[bool] = Form(None),
+        images: Optional[UploadFile] = File(None),
+        status: Optional[str] = Form(None)
 ):
     try:
-        # Obtener el producto existente
         existing_product = await get_product_by_id(product_id)
-
         if not existing_product:
             raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-        # Si el campo 'status' se pasó, actualizamos el estado del producto
+        validate_offer_fields(is_offer, offer_start, offer_end)
+
         if status:
             status = 'active' if status == 'activo' else 'inactive'
 
-        # Manejo de la imagen: Si no hay imagen, mantenemos la original. Si hay imagen, la subimos
         image_url = await handle_image_upload(images) or existing_product.images
-        # print(image_url)
-        print(status)
-        # Crear los datos para la actualización, usando valores existentes si no se proporcionan nuevos
+
         updated_data = {
             "name": name or existing_product.name,
             "description": description or existing_product.description,
@@ -176,16 +245,80 @@ async def update_product_view(
             "is_offer": is_offer if is_offer is not None else existing_product.is_offer,
             "offer_price": offer_price or existing_product.offer_price,
             "offer_start": offer_start or existing_product.offer_start,
-            "offer_end": offer_end or existing_product.offer_end,  # Actualizamos offer_end
+            "offer_end": offer_end or existing_product.offer_end,
             "is_sealed": is_sealed if is_sealed is not None else existing_product.is_sealed,
             "images": image_url,
-            "status": status or existing_product.status,  # Actualizamos el estado si se pasó
+            "status": status or existing_product.status,
         }
 
-        # Actualizar el producto en la base de datos
         updated_product = await update_product(product_id, **updated_data)
-        print(updated_product)
         return {"message": "Producto actualizado exitosamente"}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al actualizar el producto: {str(e)}")
+
+
+@router.put("/preventa/bulk-update")
+async def update_preventa_bulk(
+        product_ids: List[str] = Form(...),
+        is_offer: Optional[bool] = Form(None),
+        offer_price: Optional[float] = Form(None),
+        percent_discount: Optional[float] = Form(None),  # nuevo campo
+        offer_end: Optional[str] = Form(None),
+):
+    try:
+        if not product_ids:
+            raise HTTPException(status_code=400, detail="Se requiere al menos un producto")
+
+        if is_offer and not offer_end:
+            raise HTTPException(status_code=400, detail="Debe proporcionar 'offer_end' si activa la oferta")
+
+        updated_products = []
+
+        for pid in product_ids:
+            product = await Product.get(PydanticObjectId(pid))
+            if not product:
+                continue
+
+            # Activar o desactivar la oferta
+            if is_offer is not None:
+                product.is_offer = is_offer
+
+            # Aplicar descuento por porcentaje si se especifica
+            if percent_discount is not None:
+                if not product.price:
+                    continue
+                product.offer_price = apply_discount(product.price, percent_discount)
+
+            # Usar precio manual si no hay porcentaje
+            elif offer_price is not None:
+                product.offer_price = offer_price
+
+            # Aplicar fecha de fin de oferta si se indica
+            if offer_end:
+                product.offer_end = offer_end
+
+            await product.save()
+            updated_products.append(str(product.id))
+
+        return {
+            "message": f"{len(updated_products)} productos actualizados correctamente",
+            "updated_ids": updated_products
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error en actualización masiva: {str(e)}")
+
+
+@router.put("/preventa/set-global-deadline")
+async def set_global_preventa_deadline(offer_end: str = Form(...)):
+    try:
+        result = await Product.find({"is_offer": True}).to_list()
+
+        for product in result:
+            product.offer_end = offer_end
+            await product.save()
+
+        return {"message": f"Actualizado {len(result)} productos con nueva fecha de preventa"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al establecer fecha de preventa: {str(e)}")
