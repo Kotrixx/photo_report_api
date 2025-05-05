@@ -123,22 +123,19 @@ async def list_preventa_products(
 @router.get("/deadline")
 async def get_preventa_deadline():
     try:
-        # Buscar productos en preventa activos
         productos_en_preventa = await Product.find({
             "status": "active",
             "is_offer": True,
-            "offer_end": {"$gte": datetime.utcnow()}  # Solo si la oferta no venció
+            "offer_end": {"$gte": datetime.utcnow()}
         }).sort("offer_end").limit(1).to_list()
 
         if not productos_en_preventa:
             return {"deadline": None}
 
-        # Tomamos el producto con la fecha de fin más próxima
-        deadline = productos_en_preventa[0].offer_end
-
-        return {"deadline": deadline}
+        return {"deadline": productos_en_preventa[0].offer_end}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al obtener fecha de preventa: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 
 # Obtener un producto por ID
