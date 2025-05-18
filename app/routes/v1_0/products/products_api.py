@@ -59,11 +59,14 @@ async def list_active_products(
 # Buscar productos filtrados
 @router.get("/search")
 async def search_products(
-        q: Optional[str] = Query(None),
-        categoria: Optional[str] = Query(None),
-        en_preventa: Optional[bool] = Query(None),
-        page: int = Query(1, ge=1),
-        limit: int = Query(8, ge=1, le=100)
+    q: Optional[str] = Query(None),
+    categoria: Optional[str] = Query(None),
+    marca: Optional[str] = Query(None),
+    min_price: Optional[float] = Query(None),
+    max_price: Optional[float] = Query(None),
+    en_preventa: Optional[bool] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(8, ge=1, le=100)
 ):
     try:
         skip = (page - 1) * limit
@@ -71,8 +74,23 @@ async def search_products(
 
         if q:
             query["name"] = {"$regex": q, "$options": "i"}
+
         if categoria:
+            # Aquí depende cómo guardes categoría, si es objeto o nombre
             query["category.name"] = categoria
+
+        if marca:
+            # Filtro por marca (similar a categoría)
+            query["brand.name"] = marca
+
+        if min_price is not None or max_price is not None:
+            price_filter = {}
+            if min_price is not None:
+                price_filter["$gte"] = min_price
+            if max_price is not None:
+                price_filter["$lte"] = max_price
+            query["price"] = price_filter
+
         if en_preventa is not None:
             query["is_offer"] = en_preventa
 
