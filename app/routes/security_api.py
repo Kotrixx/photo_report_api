@@ -36,9 +36,6 @@ logger = logging.getLogger(__name__)
 
 @router.post("/login")
 async def login(data: LoginData, request: Request):
-    """
-    Endpoint de autenticación. Verifica credenciales y genera tokens.
-    """
     metadata = extract_metadata(request)
     user, identifier = await get_user_and_identifier(data)
 
@@ -52,8 +49,22 @@ async def login(data: LoginData, request: Request):
         )
 
     log_auth_attempt(identifier, success=True, metadata=metadata)
-    await reset_failed_attempts(identifier, request.client.host)  # Reinicia intentos fallidos
-    return generate_tokens(user, identifier)
+    await reset_failed_attempts(identifier, request.client.host)
+
+    tokens = generate_tokens(user, identifier)  # {'access_token': '...', ...}
+    token = tokens['access_token']
+
+    response = JSONResponse(content={"message": "Login successful"})
+    response.set_cookie(
+        key="session",
+        value=token,
+        httponly=False,       # Si usas middleware de Next.js, no puede ser HttpOnly
+        secure=True,          # Asegúrate de que producción tenga HTTPS
+        samesite="none",       # o "none" si tu frontend y backend están en dominios distintos
+        max_age=60 * 60,      # 1 hora
+        path="/"
+    )
+    return response
 
 
 @router.post("/logout")
