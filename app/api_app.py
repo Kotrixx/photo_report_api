@@ -7,6 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import RedirectResponse, JSONResponse
 
+from app.middleware.auth_middleware import AuthMiddleware
 from app.models.database import init_db
 from app.routes import security_api as security_routes
 from app.routes.v1_0.brand import brand_api as brand_routes
@@ -47,9 +48,9 @@ middleware = [
         TrustedHostMiddleware,
         allowed_hosts=["localhost", "127.0.0.1", "*"]
     ),
-#    Middleware(
-#        AuthMiddleware
-#    )
+    Middleware(
+        AuthMiddleware
+    )
 ]
 
 api_app = FastAPI(

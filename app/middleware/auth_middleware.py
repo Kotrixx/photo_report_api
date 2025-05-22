@@ -33,7 +33,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # Almacenar el payload en el estado del request para reutilización
             request.state.payload = payload
             # Verificar si el token ha sido revocado
-            print(payload)
+            print(f"asd {payload}")
             jti = payload # .get("jti")
             if not jti or await is_token_revoked(jti):
                 raise HTTPException(status_code=401, detail="Token has been revoked")
