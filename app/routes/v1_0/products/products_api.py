@@ -10,30 +10,11 @@ from app.routes.v1_0.products import router
 from app.utils.product import create_product, update_product, handle_image_upload, validate_offer_fields, apply_discount
 
 
-# Listar todos los productos (sin filtro de estado)
-@router.get("/all")
-async def get_products(
-        page: int = Query(1, ge=1),
-        limit: int = Query(8, ge=1, le=100)
-):
-    try:
-        skip = (page - 1) * limit
-        products = await Product.find().skip(skip).limit(limit).to_list()
-        total_products = await Product.count()
-        total_pages = (total_products + limit - 1) // limit
+# ================================
+# RUTAS PÚBLICAS (sin prefijo admin)
+# ================================
 
-        return {
-            "page": page,
-            "limit": limit,
-            "total_products": total_products,
-            "total_pages": total_pages,
-            "products": products
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al obtener productos: {str(e)}")
-
-
-# Listar productos activos
+# Listar productos activos (público)
 @router.get("/")
 async def list_active_products(
         page: int = Query(1, ge=1),
@@ -56,17 +37,17 @@ async def list_active_products(
         raise HTTPException(status_code=400, detail=f"Error al obtener los productos activos: {str(e)}")
 
 
-# Buscar productos filtrados
+# Buscar productos filtrados (público)
 @router.get("/search")
 async def search_products(
-    q: Optional[str] = Query(None),
-    categoria: Optional[str] = Query(None),
-    marca: Optional[str] = Query(None),
-    min_price: Optional[float] = Query(None),
-    max_price: Optional[float] = Query(None),
-    en_preventa: Optional[bool] = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(8, ge=1, le=100)
+        q: Optional[str] = Query(None),
+        categoria: Optional[str] = Query(None),
+        marca: Optional[str] = Query(None),
+        min_price: Optional[float] = Query(None),
+        max_price: Optional[float] = Query(None),
+        en_preventa: Optional[bool] = Query(None),
+        page: int = Query(1, ge=1),
+        limit: int = Query(8, ge=1, le=100)
 ):
     try:
         skip = (page - 1) * limit
@@ -76,11 +57,9 @@ async def search_products(
             query["name"] = {"$regex": q, "$options": "i"}
 
         if categoria:
-            # Aquí depende cómo guardes categoría, si es objeto o nombre
             query["category.name"] = categoria
 
         if marca:
-            # Filtro por marca (similar a categoría)
             query["brand.name"] = marca
 
         if min_price is not None or max_price is not None:
@@ -109,6 +88,7 @@ async def search_products(
         raise HTTPException(status_code=400, detail=f"Error al buscar productos: {str(e)}")
 
 
+# Productos en preventa (público)
 @router.get("/preventa")
 async def list_preventa_products(
         page: int = Query(1, ge=1),
@@ -120,7 +100,7 @@ async def list_preventa_products(
         query = {
             "status": "active",
             "is_offer": True,
-            "offer_end": {"$gte": datetime.utcnow()}  # Oferta que aún no vence
+            "offer_end": {"$gte": datetime.utcnow()}
         }
 
         products = await Product.find(query).skip(skip).limit(limit).to_list()
@@ -138,6 +118,7 @@ async def list_preventa_products(
         raise HTTPException(status_code=400, detail=f"Error al listar productos en preventa: {str(e)}")
 
 
+# Deadline de preventa (público)
 @router.get("/deadline")
 async def get_preventa_deadline():
     try:
@@ -155,10 +136,48 @@ async def get_preventa_deadline():
         raise HTTPException(status_code=400, detail=str(e))
 
 
-
-# Obtener un producto por ID
+# Obtener un producto por ID (público - solo activos)
 @router.get("/{product_id}")
 async def get_product_by_id(product_id: PydanticObjectId):
+    try:
+        product = await Product.get(product_id)
+        if not product or product.status != "active":
+            raise HTTPException(status_code=404, detail="Producto no encontrado")
+        return product
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al obtener el producto: {str(e)}")
+
+
+# ================================
+# RUTAS ADMINISTRATIVAS (con prefijo /admin)
+# ================================
+
+# Listar TODOS los productos (incluyendo inactivos) - ADMIN ONLY
+@router.get("/admin/all")
+async def get_all_products(
+        page: int = Query(1, ge=1),
+        limit: int = Query(8, ge=1, le=100)
+):
+    try:
+        skip = (page - 1) * limit
+        products = await Product.find().skip(skip).limit(limit).to_list()
+        total_products = await Product.count()
+        total_pages = (total_products + limit - 1) // limit
+
+        return {
+            "page": page,
+            "limit": limit,
+            "total_products": total_products,
+            "total_pages": total_pages,
+            "products": products
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener productos: {str(e)}")
+
+
+# Obtener producto específico por ID (admin puede ver inactivos) - ADMIN ONLY
+@router.get("/admin/{product_id}")
+async def get_product_by_id_admin(product_id: PydanticObjectId):
     try:
         product = await Product.get(product_id)
         if not product:
@@ -168,8 +187,8 @@ async def get_product_by_id(product_id: PydanticObjectId):
         raise HTTPException(status_code=400, detail=f"Error al obtener el producto: {str(e)}")
 
 
-# Crear un nuevo producto
-@router.post("/")
+# Crear un nuevo producto - ADMIN ONLY
+@router.post("/admin/")
 async def create_product_view(
         name: Optional[str] = Form(None),
         description: Optional[str] = Form(None),
@@ -218,8 +237,8 @@ async def create_product_view(
         raise HTTPException(status_code=400, detail=f"Error al crear el producto: {str(e)}")
 
 
-# Actualizar un producto
-@router.put("/{product_id}")
+# Actualizar un producto - ADMIN ONLY
+@router.put("/admin/{product_id}")
 async def update_product_view(
         product_id: str,
         name: Optional[str] = Form(None),
@@ -238,7 +257,7 @@ async def update_product_view(
         status: Optional[str] = Form(None)
 ):
     try:
-        existing_product = await get_product_by_id(product_id)
+        existing_product = await get_product_by_id_admin(product_id)
         if not existing_product:
             raise HTTPException(status_code=404, detail="Producto no encontrado")
 
@@ -273,12 +292,27 @@ async def update_product_view(
         raise HTTPException(status_code=400, detail=f"Error al actualizar el producto: {str(e)}")
 
 
-@router.put("/preventa/bulk-update")
+# Eliminar producto - ADMIN ONLY
+@router.delete("/admin/{product_id}")
+async def delete_product(product_id: PydanticObjectId):
+    try:
+        product = await Product.get(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+        await product.delete()
+        return {"message": "Producto eliminado exitosamente"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al eliminar el producto: {str(e)}")
+
+
+# Actualización masiva de preventa - ADMIN ONLY
+@router.put("/admin/preventa/bulk-update")
 async def update_preventa_bulk(
         product_ids: List[str] = Form(...),
         is_offer: Optional[bool] = Form(None),
         offer_price: Optional[float] = Form(None),
-        percent_discount: Optional[float] = Form(None),  # nuevo campo
+        percent_discount: Optional[float] = Form(None),
         offer_end: Optional[str] = Form(None),
 ):
     try:
@@ -295,21 +329,17 @@ async def update_preventa_bulk(
             if not product:
                 continue
 
-            # Activar o desactivar la oferta
             if is_offer is not None:
                 product.is_offer = is_offer
 
-            # Aplicar descuento por porcentaje si se especifica
             if percent_discount is not None:
                 if not product.price:
                     continue
                 product.offer_price = apply_discount(product.price, percent_discount)
 
-            # Usar precio manual si no hay porcentaje
             elif offer_price is not None:
                 product.offer_price = offer_price
 
-            # Aplicar fecha de fin de oferta si se indica
             if offer_end:
                 product.offer_end = offer_end
 
@@ -325,7 +355,8 @@ async def update_preventa_bulk(
         raise HTTPException(status_code=400, detail=f"Error en actualización masiva: {str(e)}")
 
 
-@router.put("/preventa/set-global-deadline")
+# Establecer fecha global de preventa - ADMIN ONLY
+@router.put("/admin/preventa/set-global-deadline")
 async def set_global_preventa_deadline(offer_end: str = Form(...)):
     try:
         result = await Product.find({"is_offer": True}).to_list()
@@ -337,3 +368,22 @@ async def set_global_preventa_deadline(offer_end: str = Form(...)):
         return {"message": f"Actualizado {len(result)} productos con nueva fecha de preventa"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al establecer fecha de preventa: {str(e)}")
+
+
+# Estadísticas de productos - ADMIN ONLY
+@router.get("/admin/stats")
+async def get_products_stats():
+    try:
+        total_products = await Product.count()
+        active_products = await Product.find({"status": "active"}).count()
+        inactive_products = await Product.find({"status": "inactive"}).count()
+        products_on_offer = await Product.find({"is_offer": True}).count()
+
+        return {
+            "total_products": total_products,
+            "active_products": active_products,
+            "inactive_products": inactive_products,
+            "products_on_offer": products_on_offer
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener estadísticas: {str(e)}")
