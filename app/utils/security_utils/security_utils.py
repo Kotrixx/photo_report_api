@@ -142,25 +142,29 @@ async def is_token_revoked(jti: str) -> bool:
 
 async def extract_token_from_request(request: Request) -> str:
     """
-    Extrae el token desde la cabecera o cookie de la solicitud.
+    Extrae el token desde la cabecera Authorization o cookie 'session'.
     """
+    # ✅ Primero intentar desde header Authorization
     auth_header = request.headers.get("Authorization")
-    auth_cookie = request.cookies.get("Authorization")
-
-    token = None
     if auth_header:
         parts = auth_header.split(" ")
         if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1]
-    elif auth_cookie:
+            return parts[1]
+
+    # ✅ Luego intentar desde cookie 'session' (nombre correcto)
+    session_cookie = request.cookies.get("session")
+    if session_cookie:
+        # La cookie 'session' contiene directamente el token, no "Bearer token"
+        return session_cookie
+
+    # También mantener compatibilidad con cookie 'Authorization' si la usas en otros lados
+    auth_cookie = request.cookies.get("Authorization")
+    if auth_cookie:
         parts = auth_cookie.split(" ")
         if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1]
+            return parts[1]
 
-    if not token:
-        raise HTTPException(status_code=401, detail="No token found or invalid format")
-
-    return token
+    raise HTTPException(status_code=401, detail="No token found")
 
 
 async def perform_logout(request: Request) -> JSONResponse:
