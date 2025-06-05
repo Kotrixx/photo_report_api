@@ -58,7 +58,7 @@ async def login(data: LoginData, request: Request):
     response.set_cookie(
         key="session",
         value=token,
-        httponly=False,       # Si usas middleware de Next.js, no puede ser HttpOnly
+        httponly=True,       # Si usas middleware de Next.js, no puede ser HttpOnly
         secure=True,          # Asegúrate de que producción tenga HTTPS
         samesite="none",       # o "none" si tu frontend y backend están en dominios distintos
         max_age=60 * 60,      # 1 hora
