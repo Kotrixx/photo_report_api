@@ -34,7 +34,8 @@ origins = [
     "https://green.ecm.energyatech.com",
     "https://onestoreasd.netlify.app",
     "https://onestore-figures.netlify.app",
-    "https://ecommerce-toys01.vercel.app"
+    "https://ecommerce-toys01.vercel.app",
+    "https://ecommerce-toys01-6kvuglqiv-kotrixxs-projects.vercel.app/"
 ]
 
 middleware = [
