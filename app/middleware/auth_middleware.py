@@ -23,20 +23,37 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Conjunto de rutas públicas que no requieren autenticación
         public_routes = {"/login", "/login_basic", "/openapi.json"}
 
-        # Permitir acceso a Swagger y sus subrutas
+        # Check if route is public or Swagger-related
         if request.url.path in public_routes or request.url.path.startswith("/docs"):
             return await call_next(request)
 
-        # Intentar extraer y validar el token
+        # Routes that require authentication
+        is_admin_route = "/admin" in request.url.path
+        is_user_route = "/user" in request.url.path
+        requires_auth = is_admin_route or is_user_route
+
+        # If it doesn't require auth, allow it to proceed without authentication
+        if not requires_auth:
+            return await call_next(request)
+
         try:
             payload = await extract_token_from_request(request)
             # Almacenar el payload en el estado del request para reutilización
             request.state.payload = payload
+
             # Verificar si el token ha sido revocado
             print(f"asd {payload}")
-            jti = payload # .get("jti")
+            jti = payload  # .get("jti")
             if not jti or await is_token_revoked(jti):
                 raise HTTPException(status_code=401, detail="Token has been revoked")
+
+            # Optional: Add additional admin-specific checks here
+            if is_admin_route:
+                # You could add role-based checks here, for example:
+                # user_role = payload.get("role")
+                # if user_role != "admin":
+                #     raise HTTPException(status_code=403, detail="Admin access required")
+                pass
 
         except HTTPException as e:
             return JSONResponse({"detail": e.detail}, status_code=e.status_code)
@@ -48,4 +65,5 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 {"detail": "Internal Server Error", "status": "error"},
                 status_code=500
             )
+
         return await call_next(request)

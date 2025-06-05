@@ -188,7 +188,7 @@ async def get_product_by_id_admin(product_id: PydanticObjectId):
 
 
 # Crear un nuevo producto - ADMIN ONLY
-@router.post("/admin/")
+@router.post("/admin")
 async def create_product_view(
         name: Optional[str] = Form(None),
         description: Optional[str] = Form(None),

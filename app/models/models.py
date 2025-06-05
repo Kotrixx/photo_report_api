@@ -131,7 +131,7 @@ class Product(Document):
     stock: int
     status: str = "active"  # Se mantiene activo o inactivo para borrado lógico
     tags: Optional[List[str]] = None
-    is_offer: bool = False  # Para preventas
+    is_offer: Optional[bool] = False  # Para preventas
     offer_price: Optional[float] = None  # Precio con descuento en preventa
     offer_start: Optional[datetime] = None  # Fecha de inicio de preventa
     offer_end: Optional[datetime] = None  # Fecha final de preventa

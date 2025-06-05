@@ -124,7 +124,7 @@ class ProductCreate(BaseModel):
     stock: int
     status: str
     is_sealed: bool = False
-    is_offer: bool = False
+    is_offer: Optional[bool] = None
     offer_price: Optional[float] = None
     offer_start: Optional[datetime] = None
     offer_end: Optional[datetime] = None
