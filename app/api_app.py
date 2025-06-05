@@ -32,7 +32,8 @@ origins = [
     "http://localhost:3000",
     "http://green.ecm.energyatech.com",
     "https://green.ecm.energyatech.com",
-    "https://onestoreasd.netlify.app"
+    "https://onestoreasd.netlify.app",
+    "https://onestore-figures.netlify.app"
 ]
 
 middleware = [
