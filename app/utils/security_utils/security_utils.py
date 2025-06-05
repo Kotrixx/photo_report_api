@@ -147,6 +147,7 @@ async def extract_token_from_request(request: Request) -> str:
     auth_header = request.headers.get("Authorization")
     auth_cookie = request.cookies.get("Authorization")
 
+
     token = None
     if auth_header:
         parts = auth_header.split(" ")
