@@ -13,7 +13,7 @@ ENV MAX_ATTEMPTS=5
 ENV CLOUDINARY_CLOUD_NAME=ecommerceonestore
 ENV CLOUDINARY_API_KEY=886259588677685
 ENV CLOUDINARY_API_SECRET=egfHwEAr8xhjEje0mEI-BWY5ggI
-ENV ENVIRONMENT=development
+ENV ENVIRONMENT=production
 
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
