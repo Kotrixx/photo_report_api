@@ -54,7 +54,8 @@ if ENVIRONMENT == "production":
         "https://green.ecm.energyatech.com",
         "https://onestoreasd.netlify.app",
         "https://onestore-figures.netlify.app",
-        "https://ecommerce-toys01.vercel.app"
+        "https://ecommerce-toys01.vercel.app",
+        "https://photo-report-api.onrender.com"  # Add your API domain too
     ])
 
 print(f"🌐 CORS allowed origins: {origins}")
@@ -133,8 +134,16 @@ middleware = [
     # 3. Trusted host protection
     Middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["localhost", "127.0.0.1", "*.energyatech.com", "*.netlify.app",
-                       "*.vercel.app"] if ENVIRONMENT == "production" else ["*"]
+        allowed_hosts=[
+            "localhost",
+            "127.0.0.1",
+            "photo-report-api.onrender.com",  # Your API domain
+            "onestore-figures.netlify.app",  # Your frontend domain
+            "*.energyatech.com",
+            "*.netlify.app",
+            "*.vercel.app",
+            "*.onrender.com"  # Allow all onrender subdomains
+        ] if ENVIRONMENT == "production" else ["*"]
     ),
 
     # 4. JWT Authentication (last, so CORS is handled first)
