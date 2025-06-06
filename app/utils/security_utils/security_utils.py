@@ -5,8 +5,7 @@ from typing import Optional, Tuple
 
 import jwt
 from dotenv import load_dotenv
-from fastapi import HTTPException
-from fastapi.params import Security
+from fastapi import HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.base import SecurityBase
 from fastapi.security.utils import get_authorization_scheme_param
@@ -21,8 +20,9 @@ from app.models.schemas import LoginData
 # Environment Variables
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
+REFRESH_SECRET_KEY = os.getenv("REFRESH_SECRET_KEY", SECRET_KEY)  # Use separate key for refresh tokens
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 15))  # Shorter for security
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 7))
 
 # Password hashing utility
@@ -37,17 +37,75 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_jwt_token(data: dict, expires_delta: timedelta, refresh: bool = False) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
-    Crea un token JWT (access o refresh).
+    Create JWT access token with improved security.
     """
-    print(f"expires delta: {expires_delta}")
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + expires_delta
-    print(f"expire {expire}")
-    to_encode.update({"exp": expire, "jti": str(uuid.uuid4()), "refresh": refresh})
+
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    jti = str(uuid.uuid4())  # Unique token identifier
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "type": "access",
+        "jti": jti
+    })
 
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_refresh_token(data: dict) -> str:
+    """
+    Create JWT refresh token with separate secret key.
+    """
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    jti = str(uuid.uuid4())
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "type": "refresh",
+        "jti": jti
+    })
+
+    return jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_token(token: str, token_type: str = "access") -> dict:
+    """
+    Decode and validate JWT token with type checking.
+    """
+    try:
+        secret_key = SECRET_KEY if token_type == "access" else REFRESH_SECRET_KEY
+        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+
+        # Validate token type
+        if payload.get("type") != token_type:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token type",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except jwt.JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 async def get_user_and_identifier(data: LoginData) -> Tuple[User, str]:
@@ -61,18 +119,17 @@ async def get_user_and_identifier(data: LoginData) -> Tuple[User, str]:
     elif data.username is not None:
         query = (User.username == data.username)
         identifier = data.username
-        print('username')
     else:
-        # Esta situación no debería ocurrir porque el schema ya valida el input
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="No se proporcionó un identificador válido."
         )
+
     user = await User.find_one(query)
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado."
+            status_code=status.HTTP_401_UNAUTHORIZED,  # Changed from 404 for security
+            detail="Credenciales inválidas."
         )
 
     return user, identifier
@@ -83,133 +140,171 @@ def generate_tokens(user: User, identifier: str) -> dict:
     Genera un par de tokens (access y refresh) para el usuario.
     """
     user_id = str(user.id)
+    access_token_data = {"sub": identifier, "user_uid": user_id}
+    refresh_token_data = {"sub": identifier, "user_uid": user_id}
+
     return {
-        "access_token": create_jwt_token(
-            {"sub": identifier, "user_uid": user_id},
-            timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        ),
-        "refresh_token": create_jwt_token(
-            {"sub": identifier, "user_uid": user_id},
-            timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
-            refresh=True
-        ),
-        "token_type": "bearer"
+        "access_token": create_access_token(access_token_data),
+        "refresh_token": create_refresh_token(refresh_token_data),
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Return expiry in seconds
     }
 
 
-async def decode_and_validate_token(token: str) -> dict:
+async def decode_and_validate_token(token: str, token_type: str = "access") -> dict:
     """
     Decodifica y valida un token JWT, asegurándose de que no esté revocado.
     """
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        jti = payload.get("jti")
-        if not jti:
-            raise HTTPException(status_code=401, detail="Invalid token: missing jti")
+    payload = decode_token(token, token_type)
 
-        if await is_token_revoked(jti):
-            raise HTTPException(status_code=401, detail="Token has been revoked")
+    jti = payload.get("jti")
+    if not jti:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing jti"
+        )
 
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    if await is_token_revoked(jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked"
+        )
 
-
-auth_scheme = HTTPBearer()
-
-
-def authenticate_token(credentials: HTTPAuthorizationCredentials = Security(auth_scheme)):
-    token = credentials.credentials
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    return payload
 
 
 async def revoke_token(jti: str):
-    revoked_token = RevokedToken(jti=jti, revoked_at=datetime.utcnow())
+    """Revoke a token by adding it to the blacklist."""
+    revoked_token = RevokedToken(jti=jti, revoked_at=datetime.now(timezone.utc))
     await revoked_token.insert()
 
 
 async def is_token_revoked(jti: str) -> bool:
+    """Check if a token is revoked."""
     return await RevokedToken.find_one(RevokedToken.jti == jti) is not None
 
 
-async def extract_token_from_request(request: Request) -> str:
+# JWT-only token extraction (removed cookie support)
+def extract_token_from_header(request: Request) -> str:
     """
-    Extrae el token desde la cabecera o cookie de la solicitud.
+    Extract JWT token from Authorization header only.
     """
     auth_header = request.headers.get("Authorization")
-    auth_cookie = request.cookies.get("Authorization")
 
+    if not auth_header:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    token = None
-    if auth_header:
-        parts = auth_header.split(" ")
-        if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1]
-    elif auth_cookie:
-        parts = auth_cookie.split(" ")
-        if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1]
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    if not token:
-        raise HTTPException(status_code=401, detail="No token found or invalid format")
-
-    return token
+    return parts[1]
 
 
 async def perform_logout(request: Request) -> JSONResponse:
     """
-    Revoca el token del usuario y elimina la cookie de autenticación.
+    Revoca el token del usuario (JWT-only, no cookies).
     """
-    token = extract_token_from_request(request)
+    token = extract_token_from_header(request)
     payload = await decode_and_validate_token(token)
 
     await revoke_token(payload["jti"])
 
-    response = JSONResponse({"detail": "Successfully logged out"})
-    response.delete_cookie("Authorization")
-    return response
+    return JSONResponse({"detail": "Successfully logged out"})
 
 
-class TokenBearer(HTTPBearer):
+# Updated HTTPBearer classes for JWT-only
+class JWTBearer(HTTPBearer):
+    """Base JWT Bearer authentication class."""
+
+    def __init__(self, auto_error: bool = True):
+        super(JWTBearer, self).__init__(auto_error=auto_error)
+
     async def __call__(self, request: Request) -> dict:
-        creds = await super().__call__(request)
-        token = creds.credentials
+        credentials: HTTPAuthorizationCredentials = await super(JWTBearer, self).__call__(request)
 
-        token_data = await decode_and_validate_token(token)
+        if not credentials:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid authorization code."
+            )
 
-        if not token_data:
-            raise HTTPException(status_code=403, detail="Invalid or expired token")
+        if not credentials.scheme == "Bearer":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid authentication scheme."
+            )
 
-        self.verify_token_data(token_data)
+        token_data = await self.verify_jwt(credentials.credentials)
         return token_data
 
-    def verify_token_data(self, token_data: dict) -> None:
-        raise NotImplementedError("Please Override this method in child classes")
+    async def verify_jwt(self, token: str) -> dict:
+        """Verify JWT token - override in subclasses."""
+        raise NotImplementedError("Please override this method in child classes")
 
 
-class AccessTokenBearer(TokenBearer):
-    async def verify_token_data(self, token_data: dict) -> None:
-        if token_data.get("refresh"):
-            raise HTTPException(status_code=403, detail="Please provide an access token")
+class AccessTokenBearer(JWTBearer):
+    """JWT Bearer for access tokens only."""
 
-        if await is_token_revoked(token_data.get("jti", "")):
-            raise HTTPException(status_code=401, detail="Token has been revoked")
+    async def verify_jwt(self, token: str) -> dict:
+        payload = await decode_and_validate_token(token, "access")
+
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Please provide a valid access token"
+            )
+
+        return payload
 
 
-class RefreshTokenBearer(TokenBearer):
-    async def verify_token_data(self, token_data: dict) -> None:
-        if not token_data.get("refresh"):
-            raise HTTPException(status_code=403, detail="Please provide a refresh token")
+class RefreshTokenBearer(JWTBearer):
+    """JWT Bearer for refresh tokens only."""
+
+    async def verify_jwt(self, token: str) -> dict:
+        payload = await decode_and_validate_token(token, "refresh")
+
+        if payload.get("type") != "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Please provide a valid refresh token"
+            )
+
+        return payload
 
 
+# Dependency for getting current user from JWT
+async def get_current_user(token_data: dict = Depends(AccessTokenBearer())) -> User:
+    """
+    Get current user from JWT access token.
+    """
+    user_uid = token_data.get("user_uid")
+    if not user_uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload"
+        )
+
+    # Convert string ID back to ObjectId for MongoDB
+    user = await User.find_one(User.id == user_uid)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+
+    return user
+
+
+# Keep BasicAuth for API docs if needed
 class BasicAuth(SecurityBase):
     """
     Class to handle basic authentication for the API documentation page.
@@ -221,7 +316,7 @@ class BasicAuth(SecurityBase):
         self.auto_error = auto_error
 
     async def __call__(self, request: Request) -> Optional[str]:
-        authorization: str = request.headers.get("Authorization" or "authorization")
+        authorization: str = request.headers.get("Authorization") or request.headers.get("authorization")
         scheme, param = get_authorization_scheme_param(authorization)
 
         if not authorization or scheme.lower() != "basic":
@@ -235,4 +330,7 @@ class BasicAuth(SecurityBase):
         return param
 
 
+# Instances for use in dependencies
+access_token_bearer = AccessTokenBearer()
+refresh_token_bearer = RefreshTokenBearer()
 basic_auth = BasicAuth(auto_error=False)

@@ -1,170 +1,239 @@
-import logging
-import os
-from datetime import timedelta, datetime
-
-import jwt
-from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordRequestForm, HTTPBasicCredentials, HTTPBasic
-from starlette.responses import RedirectResponse, JSONResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from starlette.responses import JSONResponse
+from typing import Optional
+from datetime import datetime, timezone
 
-from app.models.schemas import Token, LoginData
-from app.utils.log_utils import log_auth_attempt
+from app.models.schemas import LoginData
+from app.models.models import User
 from app.utils.security_utils.security_utils import (
-    verify_password, create_jwt_token, RefreshTokenBearer,
-    revoke_token, get_user_and_identifier, generate_tokens, perform_logout
+    get_user_and_identifier,
+    generate_tokens,
+    verify_password,
+    decode_and_validate_token,
+    revoke_token,
+    refresh_token_bearer,
+    access_token_bearer,
+    get_current_user,
+    perform_logout
 )
-from app.utils.user_utils.user_utils import (
-    register_failed_attempt, reset_failed_attempts, is_locked,
-    authenticate_user, extract_metadata
-)
 
-# Cargar variables de entorno
-SECRET_KEY_FERNET = os.getenv("SECRET_KEY_FERNET")
-cipher = Fernet(SECRET_KEY_FERNET)
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
-LOCKOUT_TIME_MIN = int(os.getenv("LOCKOUT_TIME_MIN", 5))
-MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", 5))
-
-# Configuración de FastAPI
-router = APIRouter()
-security = HTTPBasic()
-logger = logging.getLogger(__name__)
+# Create router for authentication endpoints
+auth_router = APIRouter()
 
 
-@router.post("/login")
-async def login(data: LoginData, request: Request):
-    metadata = extract_metadata(request)
-    user, identifier = await get_user_and_identifier(data)
+@auth_router.post("/login")
+async def login(login_data: LoginData):
+    """
+    JWT-only login endpoint.
+    Returns access and refresh tokens.
+    """
+    try:
+        # Get user and validate credentials
+        user, identifier = await get_user_and_identifier(login_data)
 
-    if not verify_password(data.password, user.password):
-        log_auth_attempt(identifier, success=False, metadata=metadata)
-        await register_failed_attempt(identifier, request.client.host, LOCKOUT_TIME_MIN, MAX_ATTEMPTS)
+        if not verify_password(login_data.password, user.password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales inválidas"
+            )
+
+        if user.status == "inactive":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Cuenta de usuario inactiva"
+            )
+
+        # Generate JWT tokens
+        tokens = generate_tokens(user, identifier)
+
+        return {
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_type": tokens["token_type"],
+            "expires_in": tokens["expires_in"],
+            "user": {
+                "id": str(user.id),
+                "username": user.username,
+                "email": user.email,
+                # Add other non-sensitive user fields as needed
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Capturar el error detallado para diagnóstico
+        print(f"Error inesperado: {e}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario o contraseña incorrectos.",
-            headers={"WWW-Authenticate": "Bearer"}
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno del servidor, por favor intente más tarde."
         )
 
-    log_auth_attempt(identifier, success=True, metadata=metadata)
-    await reset_failed_attempts(identifier, request.client.host)
 
-    tokens = generate_tokens(user, identifier)  # {'access_token': '...', ...}
-    token = tokens['access_token']
-
-    response = JSONResponse(content={"message": "Login successful"})
-    response.set_cookie(
-        key="session",
-        value=token,
-        httponly=False,       # Si usas middleware de Next.js, no puede ser HttpOnly
-        secure=True,          # Asegúrate de que producción tenga HTTPS
-        samesite="none",       # o "none" si tu frontend y backend están en dominios distintos
-        max_age=60 * 60,      # 1 hora
-        path="/"
+@auth_router.post("/login-form")
+async def login_form(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Alternative login endpoint that accepts form data (OAuth2 compatible).
+    Useful for FastAPI's automatic OpenAPI docs authentication.
+    """
+    # Create LoginData from form
+    login_data = LoginData(
+        username=form_data.username,
+        password=form_data.password
     )
-    return response
+
+    # Reuse the main login logic
+    return await login(login_data)
 
 
-@router.post("/logout")
+@auth_router.post("/refresh")
+async def refresh_access_token(token_data: dict = Depends(refresh_token_bearer)):
+    """
+    Refresh access token using refresh token.
+    """
+    try:
+        user_uid = token_data.get("user_uid")
+        identifier = token_data.get("sub")
+
+        if not user_uid or not identifier:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token payload"
+            )
+
+        # Verify user still exists and is active
+        user = await User.find_one(User.id == user_uid)
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive"
+            )
+
+        # Generate new tokens
+        new_tokens = generate_tokens(user, identifier)
+
+        # Optionally revoke the old refresh token for security
+        old_jti = token_data.get("jti")
+        if old_jti:
+            await revoke_token(old_jti)
+
+        return {
+            "access_token": new_tokens["access_token"],
+            "refresh_token": new_tokens["refresh_token"],
+            "token_type": new_tokens["token_type"],
+            "expires_in": new_tokens["expires_in"]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh failed"
+        )
+
+
+@auth_router.post("/logout")
 async def logout(request: Request):
     """
-    Cierra sesión del usuario revocando el token actual.
+    Logout by revoking the current access token.
+    JWT-only implementation (no cookies).
     """
     return await perform_logout(request)
 
 
-@router.post("/revoke_token")
-async def revoke_current_token(token: str):
+@auth_router.get("/me")
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """
-    Revoca manualmente un token.
+    Get current authenticated user information.
+    """
+    return {
+        "id": str(current_user.id),
+        "username": current_user.username,
+        "email": current_user.email,
+        "is_active": current_user.is_active,
+        # Add other fields as needed, but exclude sensitive data
+    }
+
+
+@auth_router.post("/verify-token")
+async def verify_token(token_data: dict = Depends(access_token_bearer)):
+    """
+    Verify if an access token is valid.
+    Useful for client-side token validation.
+    """
+    return {
+        "valid": True,
+        "user_id": token_data.get("user_uid"),
+        "username": token_data.get("sub"),
+        "expires_at": token_data.get("exp")
+    }
+
+
+@auth_router.post("/revoke-all-tokens")
+async def revoke_all_user_tokens(current_user: User = Depends(get_current_user)):
+    """
+    Revoke all tokens for the current user.
+    This could be implemented by incrementing a user's token version
+    or by adding all their tokens to the revocation list.
     """
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        await revoke_token(payload["jti"])
-        return {"msg": "Token revoked successfully"}
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=400, detail="Invalid token")
+        # Implementation depends on your revocation strategy
+        # Option 1: Increment user's jwt_version (requires adding this field to User model)
+        # current_user.jwt_version += 1
+        # await current_user.save()
 
+        # Option 2: Add logic to revoke all tokens for this user
+        # This is more complex and requires tracking all issued tokens
 
-@router.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    """
-    Genera un token de acceso mediante formulario OAuth2.
-    """
-    user = await authenticate_user(form_data.username, form_data.password)
-    if not user:
-        await register_failed_attempt(form_data.username, None, LOCKOUT_TIME_MIN, MAX_ATTEMPTS)
+        return {"message": "All tokens revoked successfully"}
+
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to revoke tokens"
         )
 
-    await reset_failed_attempts(form_data.username, None)
-    access_token = create_jwt_token(data={"sub": user.email},
-                                    expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-                                    )
-    return {"access_token": access_token, "token_type": "bearer"}
 
-
-@router.get("/token/refresh")
-async def get_new_access_token(token_details: dict = Depends(RefreshTokenBearer())):
+# Protected route examples
+@auth_router.get("/protected")
+async def protected_route(current_user: User = Depends(get_current_user)):
     """
-    Permite generar un nuevo access token basado en un refresh token válido.
+    Example of a protected route that requires valid JWT.
     """
-    if datetime.fromtimestamp(token_details['exp']) > datetime.now():
-        return {
-            "access_token": create_jwt_token(token_details,
-                                             ),
-            "token_type": "bearer"
-        }
-    else:
-        raise HTTPException(status_code=400, detail="Invalid or expired refresh token")
+    return {
+        "message": f"Hello {current_user.username}!",
+        "user_id": str(current_user.id)
+    }
 
 
-@router.get("/login_basic")
-async def login_basic(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+# Admin-only route example
+@auth_router.get("/admin-only")
+async def admin_only_route(token_data: dict = Depends(access_token_bearer)):
     """
-    Autenticación básica con bloqueo por intentos fallidos.
+    Example of admin-only route.
+    You'll need to implement role checking based on your user model.
     """
-    username = credentials.username
-    client_ip = request.client.host
-
-    # Verificar si el usuario o IP están bloqueados
-    user_locked, user_lockout_until = await is_locked(username=username)
-    ip_locked, ip_lockout_until = await is_locked(ip=client_ip)
-
-    if user_locked or ip_locked:
-        lockout_until = user_lockout_until or ip_lockout_until
-        return JSONResponse(
-            status_code=403,
-            content={
-                "message": "Account or IP is locked due to multiple failed login attempts.",
-                "lockout_until": lockout_until.isoformat(),
-            },
+    # Check if user has admin role (implement based on your user model)
+    user_role = token_data.get("role", "user")  # Assuming role is in token
+    if user_role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
         )
 
-    user = await authenticate_user(username, credentials.password)
-    if not user:
-        await register_failed_attempt(username=username, ip=client_ip, lockout_time=LOCKOUT_TIME_MIN,
-                                      max_attempts=MAX_ATTEMPTS)
-        return JSONResponse(status_code=401, content={"message": "Incorrect email or password"})
+    return {"message": "Admin access granted"}
 
-    await reset_failed_attempts(username=username, ip=client_ip)
 
-    access_token = create_jwt_token(data={"sub": user.email},
-                                    expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-
-    response = RedirectResponse(url="/docs")
-    response.set_cookie(
-        key="Authorization",
-        value=f"Bearer {access_token}",
-        domain="localtest.me",
-        httponly=True,
-        samesite="Strict",
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES,  # * 60,
-        expires=ACCESS_TOKEN_EXPIRE_MINUTES,  # * 60,
-    )
-    return response
+# Health check endpoint (public)
+@auth_router.get("/health")
+async def health_check():
+    """
+    Public health check endpoint.
+    """
+    return {
+        "status": "healthy",
+        "service": "authentication",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
