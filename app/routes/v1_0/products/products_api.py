@@ -248,11 +248,11 @@ async def update_product_view(
         category_id: Optional[str] = Form(None),
         franchise_id: Optional[str] = Form(None),
         brand_id: Optional[str] = Form(None),
-        is_offer: Optional[bool] = Form(None),
+        is_offer: Optional[str] = Form(None),  # Cambiar a str
         offer_price: Optional[float] = Form(None),
         offer_start: Optional[str] = Form(None),
         offer_end: Optional[str] = Form(None),
-        is_sealed: Optional[bool] = Form(None),
+        is_sealed: Optional[str] = Form(None),  # Cambiar a str
         images: Optional[UploadFile] = File(None),
         status: Optional[str] = Form(None)
 ):
@@ -261,36 +261,57 @@ async def update_product_view(
         if not existing_product:
             raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-        validate_offer_fields(is_offer, offer_start, offer_end)
+        # Debug: imprimir todos los valores recibidos
+        print(f"Received values:")
+        print(f"name: {name}")
+        print(f"status: {status}")
+        print(f"is_sealed: {is_sealed}")
+        print(f"is_offer: {is_offer}")
+        print(f"price: {price}")
 
+        # Convertir strings a booleanos manualmente
+        is_sealed_bool = None
+        if is_sealed is not None:
+            is_sealed_bool = is_sealed.lower() == 'true'
+
+        is_offer_bool = None
+        if is_offer is not None:
+            is_offer_bool = is_offer.lower() == 'true'
+
+        # Validar campos de oferta
+        validate_offer_fields(is_offer_bool, offer_start, offer_end)
+
+        # Procesar status
+        processed_status = None
         if status:
-            status = 'active' if status == 'activo' else 'inactive'
+            processed_status = 'active' if status == 'active' else 'inactive'
 
+        # Manejar imagen
         image_url = await handle_image_upload(images) or existing_product.images
 
         updated_data = {
             "name": name or existing_product.name,
             "description": description or existing_product.description,
             "price": price or existing_product.price,
-            "stock": stock or existing_product.stock,
+            "stock": stock if stock is not None else existing_product.stock,
             "category": await Category.get(category_id) if category_id else existing_product.category,
             "franchise": await Franchise.get(franchise_id) if franchise_id else existing_product.franchise,
             "brand": await Brand.get(brand_id) if brand_id else existing_product.brand,
-            "is_offer": is_offer if is_offer is not None else existing_product.is_offer,
+            "is_offer": is_offer_bool if is_offer_bool is not None else existing_product.is_offer,
             "offer_price": offer_price or existing_product.offer_price,
             "offer_start": offer_start or existing_product.offer_start,
             "offer_end": offer_end or existing_product.offer_end,
-            "is_sealed": is_sealed if is_sealed is not None else existing_product.is_sealed,
+            "is_sealed": is_sealed_bool if is_sealed_bool is not None else existing_product.is_sealed,
             "images": image_url,
-            "status": status or existing_product.status,
+            "status": processed_status or existing_product.status,
         }
 
         updated_product = await update_product(product_id, **updated_data)
         return {"message": "Producto actualizado exitosamente"}
 
     except Exception as e:
+        print(f"Error in update_product_view: {str(e)}")  # Debug adicional
         raise HTTPException(status_code=400, detail=f"Error al actualizar el producto: {str(e)}")
-
 
 # Eliminar producto - ADMIN ONLY
 @router.delete("/admin/{product_id}")
