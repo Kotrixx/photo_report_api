@@ -1,5 +1,6 @@
+import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Union
 
 from beanie import PydanticObjectId
 from fastapi import Query, Form, UploadFile, File, HTTPException
@@ -119,19 +120,74 @@ async def list_preventa_products(
 
 
 # Deadline de preventa (público)
+from datetime import datetime
+from typing import Optional
+
+
 @router.get("/deadline")
 async def get_preventa_deadline():
     try:
-        productos_en_preventa = await Product.find({
+        productos_candidatos = await Product.find({
             "status": "active",
             "is_offer": True,
-            "offer_end": {"$gte": datetime.utcnow()}
-        }).sort("offer_end").limit(1).to_list()
+            "offer_end": {"$exists": True, "$ne": None}
+        }).to_list()
 
-        if not productos_en_preventa:
+        def parse_offer_date(date_obj: Union[str, datetime]) -> Optional[datetime]:
+            """Parsea una fecha que puede ser string o datetime"""
+            try:
+                if not date_obj:
+                    return None
+
+                # Si ya es datetime, devolverlo directamente
+                if isinstance(date_obj, datetime):
+                    print(f"DEBUG: Ya es datetime: {date_obj}")
+                    return date_obj
+
+                # Si es string, parsearlo
+                if isinstance(date_obj, str):
+                    print(f"DEBUG: Parseando string: '{date_obj}'")
+                    # Si la fecha no tiene segundos, los agregamos
+                    if len(date_obj) == 16:  # "2025-06-17T17:13"
+                        date_obj += ":00"
+                    elif len(date_obj) == 13:  # "2025-06-17T17"
+                        date_obj += ":00:00"
+
+                    return datetime.fromisoformat(date_obj)
+
+                print(f"DEBUG: Tipo no soportado: {type(date_obj)}")
+                return None
+
+            except (ValueError, TypeError) as e:
+                print(f"DEBUG: Error parseando fecha '{date_obj}': {e}")
+                return None
+
+        productos_validos = []
+        now = datetime.utcnow()
+        print(f"DEBUG: Fecha actual UTC: {now}")
+
+        for i, producto in enumerate(productos_candidatos):
+            offer_end_raw = producto.offer_end if hasattr(producto, 'offer_end') else producto.get('offer_end')
+            offer_end_date = parse_offer_date(offer_end_raw)
+
+            if offer_end_date:
+                print(f"DEBUG: Comparando {offer_end_date} >= {now}: {offer_end_date >= now}")
+                if offer_end_date >= now:
+                    productos_validos.append((producto, offer_end_date))
+                    print(f"DEBUG: Producto VÁLIDO agregado")
+
+        print(f"DEBUG: Total productos válidos: {len(productos_validos)}")
+
+        if not productos_validos:
             return {"deadline": None}
 
-        return {"deadline": productos_en_preventa[0].offer_end}
+        # Obtener el producto con la fecha más próxima
+        producto_mas_proximo = min(productos_validos, key=lambda x: x[1])
+        resultado_deadline = producto_mas_proximo[0].offer_end if hasattr(producto_mas_proximo[0], 'offer_end') else \
+        producto_mas_proximo[0].get('offer_end')
+
+        return {"deadline": resultado_deadline}
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -328,14 +384,19 @@ async def delete_product(product_id: PydanticObjectId):
 
 
 # Actualización masiva de preventa - ADMIN ONLY
-@router.put("/admin/preventa/bulk-update")
-async def update_preventa_bulk(
+# Opción 2: Manteniendo FormData (Alternativa)
+@router.put("/admin/preventa/bulk-update-form")
+async def update_preventa_bulk_form(
         product_ids: List[str] = Form(...),
         is_offer: Optional[bool] = Form(None),
-        offer_price: Optional[float] = Form(None),
+        offer_prices_json: Optional[str] = Form(None),  # JSON string de precios
         percent_discount: Optional[float] = Form(None),
         offer_end: Optional[str] = Form(None),
 ):
+    """
+    Versión con FormData que acepta precios como JSON string
+    """
+    print("Product IDs: ", product_ids)
     try:
         if not product_ids:
             raise HTTPException(status_code=400, detail="Se requiere al menos un producto")
@@ -343,37 +404,72 @@ async def update_preventa_bulk(
         if is_offer and not offer_end:
             raise HTTPException(status_code=400, detail="Debe proporcionar 'offer_end' si activa la oferta")
 
+        # Parsear precios individuales si están presentes
+        offer_prices = None
+        if offer_prices_json:
+            try:
+                offer_prices = json.loads(offer_prices_json)
+                if not isinstance(offer_prices, list):
+                    raise ValueError("offer_prices debe ser un array")
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="offer_prices_json debe ser un JSON válido")
+
+        # Validar coherencia de datos
+        if offer_prices and len(offer_prices) != len(product_ids):
+            raise HTTPException(
+                status_code=400,
+                detail=f"La cantidad de precios ({len(offer_prices)}) debe coincidir con la cantidad de productos ({len(product_ids)})"
+            )
+
         updated_products = []
+        skipped_products = []
 
-        for pid in product_ids:
-            product = await Product.get(PydanticObjectId(pid))
-            if not product:
-                continue
-
-            if is_offer is not None:
-                product.is_offer = is_offer
-
-            if percent_discount is not None:
-                if not product.price:
+        for i, pid in enumerate(product_ids):
+            try:
+                product = await Product.get(PydanticObjectId(pid))
+                if not product:
+                    skipped_products.append({"id": pid, "reason": "Producto no encontrado"})
                     continue
-                product.offer_price = apply_discount(product.price, percent_discount)
 
-            elif offer_price is not None:
-                product.offer_price = offer_price
+                if is_offer is not None:
+                    product.is_offer = is_offer
 
-            if offer_end:
-                product.offer_end = offer_end
+                if is_offer:
+                    if percent_discount is not None:
+                        if not product.price:
+                            skipped_products.append({"id": pid, "reason": "Producto sin precio base"})
+                            continue
+                        product.offer_price = apply_discount(product.price, percent_discount)
 
-            await product.save()
-            updated_products.append(str(product.id))
+                    elif offer_prices and i < len(offer_prices):
+                        product.offer_price = offer_prices[i]
+
+                if offer_end:
+                    product.offer_end = offer_end
+
+                await product.save()
+                updated_products.append({
+                    "id": str(product.id),
+                    "name": product.name,
+                    "offer_price": product.offer_price,
+                    "is_offer": product.is_offer
+                })
+
+            except Exception as e:
+                skipped_products.append({"id": pid, "reason": f"Error: {str(e)}"})
 
         return {
+            "success": True,
             "message": f"{len(updated_products)} productos actualizados correctamente",
-            "updated_ids": updated_products
+            "updated_products": updated_products,
+            "skipped_products": skipped_products
         }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error en actualización masiva: {str(e)}")
+
+
+
 
 
 # Establecer fecha global de preventa - ADMIN ONLY

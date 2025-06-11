@@ -91,5 +91,12 @@ def validate_offer_fields(is_offer, offer_start, offer_end):
                                 detail="No debe proporcionar fechas de oferta si 'is_offer' está desactivado.")
 
 
-def apply_discount(price: float, percent: float) -> float:
-    return round(price * (1 - percent / 100), 2)
+# Función helper para aplicar descuentos
+def apply_discount(price: float, discount_percent: float) -> float:
+    """
+    Aplica un descuento porcentual al precio
+    """
+    if discount_percent < 0 or discount_percent >= 100:
+        raise ValueError("El descuento debe estar entre 0 y 99")
+
+    return round(price * (1 - discount_percent / 100), 2)
