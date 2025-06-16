@@ -19,6 +19,8 @@ from app.routes.v1_0.categories import categories_api as categories_routes
 from app.routes.v1_0.franchise import franchise_api as franchise_routes
 from app.routes.v1_0.products import products_api as products_routes
 from app.routes.v1_0.user import user_api as user_routes
+from app.routes.v1_0.testimonios import testimonios_api as testimonio_routes
+
 from app.utils.security_utils.security_utils import BasicAuth, basic_auth
 
 # Load environment variables
@@ -176,6 +178,8 @@ def config():
     # Include all your existing routes
     api_app.include_router(security_routes.auth_router, prefix="")
     api_app.include_router(user_routes.router, prefix="/v1.0")
+    api_app.include_router(testimonio_routes.router, prefix="/v1.0")
+
     api_app.include_router(products_routes.router, prefix="/v1.0")
     api_app.include_router(franchise_routes.router, prefix="/v1.0")
     api_app.include_router(brand_routes.router, prefix="/v1.0")

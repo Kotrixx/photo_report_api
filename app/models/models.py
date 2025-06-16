@@ -143,3 +143,49 @@ class Product(Document):
     class Settings:
         use_state_management = True
         name = "products"  # MongoDB collection name
+
+
+class TestimonioDocument(Document):
+    """Modelo de testimonio en MongoDB"""
+
+    # Información del cliente
+    nombre: str = Field(..., min_length=1, max_length=100)
+    email: Optional[str] = Field(None, max_length=100)
+    telefono: Optional[str] = Field(None, max_length=20)
+    avatar: Optional[str] = Field(None, description="URL del avatar del cliente")
+
+    # Contenido del testimonio
+    comentario: str = Field(..., min_length=10, max_length=1000)
+    producto: str = Field(..., min_length=1, max_length=200)
+    calificacion: int = Field(..., ge=1, le=5)
+
+    # Tipo y medios
+    tipo_testimonio: str = Field(...)
+    foto_testimonio: Optional[str] = Field(None, description="URL de la imagen del testimonio")
+
+    # Configuraciones
+    verificado: bool = Field(default=True)
+    activo: bool = Field(default=True)
+
+    # Organización
+    etiquetas: List[str] = Field(default_factory=list)
+    notas_privadas: Optional[str] = Field(None, max_length=500, description="Notas internas no públicas")
+
+    # Fechas
+    fecha_testimonio: datetime = Field(default_factory=datetime.utcnow)
+    fecha_creacion: datetime = Field(default_factory=datetime.utcnow)
+    fecha_actualizacion: datetime = Field(default_factory=datetime.utcnow)
+
+    # Metadata
+    ip_origen: Optional[str] = Field(None)
+    user_agent: Optional[str] = Field(None)
+
+    class Settings:
+        name = "testimonios"
+        indexes = [
+            [("activo", 1), ("verificado", 1)],
+            [("calificacion", -1)],
+            [("fecha_creacion", -1)],
+            [("tipo_testimonio", 1)],
+            [("etiquetas", 1)]
+        ]

@@ -1,14 +1,16 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Union
 
 from beanie import PydanticObjectId
 from fastapi import Query, Form, UploadFile, File, HTTPException
 
 from app.models.models import Product, Category, Brand, Franchise
-from app.models.schemas import ProductCreate
+from app.models.schemas import ProductCreate, DashboardResponse, DashboardMetrics, PresaleDetail, ProductAlert, \
+    DashboardDetails
 from app.routes.v1_0.products import router
-from app.utils.product import create_product, update_product, handle_image_upload, validate_offer_fields, apply_discount
+from app.utils.product import create_product, update_product, handle_image_upload, validate_offer_fields, \
+    apply_discount, get_category_distribution
 
 
 # ================================
@@ -184,7 +186,7 @@ async def get_preventa_deadline():
         # Obtener el producto con la fecha más próxima
         producto_mas_proximo = min(productos_validos, key=lambda x: x[1])
         resultado_deadline = producto_mas_proximo[0].offer_end if hasattr(producto_mas_proximo[0], 'offer_end') else \
-        producto_mas_proximo[0].get('offer_end')
+            producto_mas_proximo[0].get('offer_end')
 
         return {"deadline": resultado_deadline}
 
@@ -207,6 +209,362 @@ async def get_product_by_id(product_id: PydanticObjectId):
 # ================================
 # RUTAS ADMINISTRATIVAS (con prefijo /admin)
 # ================================
+
+
+# ================================
+# DASHBOARD PRINCIPAL - ADMIN ONLY
+# ================================
+
+@router.get("/admin/dashboard", response_model=DashboardResponse)
+async def get_products_dashboard(
+        include_details: bool = Query(True, description="Incluir detalles adicionales para gráficos"),
+        stock_threshold: float = Query(0.2, ge=0, le=1, description="Umbral para stock crítico (0.2 = 20%)")
+):
+    """
+    Endpoint principal del dashboard de productos con métricas completas.
+    Requiere permisos de administrador.
+    """
+    try:
+        current_date = datetime.utcnow()
+        thirty_days_ago = current_date - timedelta(days=30)
+
+        # Obtener todos los productos activos para cálculos
+        active_products = await Product.find({"status": "active"}).to_list()
+        all_products = await Product.find().to_list()
+
+        # ================================
+        # MÉTRICAS PRINCIPALES
+        # ================================
+
+        # Total de productos
+        total_products = len(all_products)
+        total_active = len(active_products)
+        total_inactive = total_products - total_active
+
+        # Productos con stock bajo (asumiendo min_stock como campo calculado)
+        low_stock_products = len([p for p in active_products if p.stock <= 5])  # Umbral fijo de 5
+
+        # Productos en preventa (is_offer = True, fecha fin vigente, tiene offer_price)
+        presale_products = len([
+            p for p in active_products
+            if p.is_offer and p.offer_end and p.offer_end >= current_date and p.offer_price and p.offer_price > 0
+        ])
+
+        # Productos sin stock
+        out_of_stock_products = len([p for p in active_products if p.stock <= 0])
+
+        # Productos con ofertas activas
+        active_offers = len([
+            p for p in active_products
+            if p.is_offer and p.offer_end and p.offer_end >= current_date and
+               (not p.offer_start or p.offer_start <= current_date)
+        ])
+
+        # Productos con stock crítico
+        critical_stock_products = len([p for p in active_products if p.stock < (5 * stock_threshold)])
+
+        # Productos nuevos (últimos 30 días)
+        new_products_last_30_days = len([
+            p for p in active_products
+            if p.createdAt and p.createdAt >= thirty_days_ago
+        ])
+
+        # Valor total del inventario
+        total_inventory_value = sum([
+            (p.offer_price if p.is_offer and p.offer_price else p.price) * p.stock
+            for p in active_products
+        ])
+
+        # Porcentajes
+        percentages = {
+            "low_stock_percentage": (low_stock_products / total_active * 100) if total_active > 0 else 0,
+            "out_of_stock_percentage": (out_of_stock_products / total_active * 100) if total_active > 0 else 0,
+            "offers_percentage": (active_offers / total_active * 100) if total_active > 0 else 0,
+            "presale_percentage": (presale_products / total_active * 100) if total_active > 0 else 0
+        }
+
+        # Métricas principales
+        metrics = DashboardMetrics(
+            total_products=total_products,
+            active_products=total_active,
+            inactive_products=total_inactive,
+            low_stock_products=low_stock_products,
+            presale_products=presale_products,
+            out_of_stock_products=out_of_stock_products,
+            active_offers=active_offers,
+            critical_stock_products=critical_stock_products,
+            new_products_last_30_days=new_products_last_30_days,
+            total_inventory_value=round(total_inventory_value, 2),
+            percentages={k: round(v, 2) for k, v in percentages.items()}
+        )
+
+        response_data = {
+            "metrics": metrics.dict(),
+            "generated_at": current_date.isoformat(),
+            "currency": "PEN"
+        }
+
+        # ================================
+        # DETALLES ADICIONALES (OPCIONAL)
+        # ================================
+
+        if include_details:
+            # Top 10 productos con menor stock
+            lowest_stock_products = sorted(active_products, key=lambda x: x.stock)[:10]
+            lowest_stock_data = [
+                {
+                    "id": str(p.id),
+                    "name": p.name,
+                    "stock": p.stock,
+                    "min_stock": 5  # Valor por defecto
+                }
+                for p in lowest_stock_products
+            ]
+
+            # Detalles de productos en preventa
+            presale_details = []
+            for p in active_products:
+                if (p.is_offer and p.offer_end and p.offer_end >= current_date and
+                        p.offer_price and p.offer_price > 0):
+
+                    discount_percentage = None
+                    if p.price > 0:
+                        discount_percentage = round(((p.price - p.offer_price) / p.price * 100), 2)
+
+                    days_remaining = (p.offer_end - current_date).days if p.offer_end else None
+
+                    presale_details.append(PresaleDetail(
+                        id=str(p.id),
+                        name=p.name,
+                        price=p.price,
+                        offer_price=p.offer_price,
+                        discount_percentage=discount_percentage,
+                        offer_end=p.offer_end,
+                        days_remaining=days_remaining
+                    ))
+
+            # Distribución por categorías
+            category_distribution = await get_category_distribution()
+
+            # Productos que requieren atención
+            attention_required = []
+            for p in active_products:
+                issues = []
+
+                if p.stock <= 0:
+                    issues.append("Sin stock")
+                elif p.stock <= 5:
+                    issues.append("Stock bajo")
+
+                if (p.is_offer and p.offer_end and
+                        (p.offer_end - current_date).days <= 7):
+                    issues.append("Oferta próxima a vencer")
+
+                if issues:
+                    days_to_offer_end = None
+                    if p.offer_end:
+                        days_to_offer_end = (p.offer_end - current_date).days
+
+                    attention_required.append(ProductAlert(
+                        id=str(p.id),
+                        name=p.name,
+                        issue=", ".join(issues),
+                        stock=p.stock,
+                        min_stock=5,
+                        days_to_offer_end=days_to_offer_end
+                    ))
+
+            # Agregar detalles a la respuesta
+            details = DashboardDetails(
+                lowest_stock_products=lowest_stock_data,
+                presale_details=presale_details,
+                category_distribution=category_distribution,
+                attention_required=[alert.dict() for alert in attention_required]
+            )
+
+            response_data["details"] = details.dict()
+
+        return DashboardResponse(
+            success=True,
+            data=response_data
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor en dashboard: {str(e)}"
+        )
+
+
+# ================================
+# MÉTRICAS POR PERÍODO - ADMIN ONLY
+# ================================
+
+@router.get("/admin/dashboard/metrics-period")
+async def get_products_metrics_by_period(
+        period_days: int = Query(30, ge=1, le=365, description="Días hacia atrás para el análisis")
+):
+    """
+    Obtiene métricas de productos para un período específico.
+    """
+    try:
+        current_date = datetime.utcnow()
+        start_date = current_date - timedelta(days=period_days)
+
+        # Productos creados en el período
+        new_products = await Product.find({
+            "createdAt": {"$gte": start_date},
+            "status": "active"
+        }).to_list()
+
+        # Productos actualizados en el período
+        updated_products = await Product.find({
+            "updatedAt": {"$gte": start_date},
+            "status": "active"
+        }).to_list()
+
+        # Ofertas que vencen en el período
+        expiring_offers = await Product.find({
+            "is_offer": True,
+            "offer_end": {
+                "$gte": current_date,
+                "$lte": current_date + timedelta(days=period_days)
+            }
+        }).to_list()
+
+        return {
+            "success": True,
+            "data": {
+                "period_days": period_days,
+                "start_date": start_date.isoformat(),
+                "end_date": current_date.isoformat(),
+                "new_products": len(new_products),
+                "updated_products": len(updated_products),
+                "expiring_offers": len(expiring_offers),
+                "new_products_details": [
+                    {
+                        "id": str(p.id),
+                        "name": p.name,
+                        "created_at": p.createdAt.isoformat() if p.createdAt else None
+                    }
+                    for p in new_products[:10]  # Límite de 10 para evitar respuestas muy grandes
+                ],
+                "expiring_offers_details": [
+                    {
+                        "id": str(p.id),
+                        "name": p.name,
+                        "offer_end": p.offer_end.isoformat() if p.offer_end else None,
+                        "days_remaining": (p.offer_end - current_date).days if p.offer_end else None
+                    }
+                    for p in expiring_offers
+                ]
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al obtener métricas por período: {str(e)}"
+        )
+
+
+# ================================
+# ALERTAS Y NOTIFICACIONES - ADMIN ONLY
+# ================================
+
+@router.get("/admin/dashboard/alerts")
+async def get_dashboard_alerts(
+        priority: Optional[str] = Query(None, regex="^(high|medium|low)$", description="Filtrar por prioridad")
+):
+    """
+    Obtiene alertas del sistema para el dashboard.
+    """
+    try:
+        current_date = datetime.utcnow()
+        alerts = []
+
+        # Productos sin stock (Prioridad alta)
+        out_of_stock = await Product.find({
+            "status": "active",
+            "stock": 0
+        }).to_list()
+
+        for product in out_of_stock:
+            alerts.append({
+                "type": "out_of_stock",
+                "priority": "high",
+                "message": f"Producto '{product.name}' sin stock",
+                "product_id": str(product.id),
+                "product_name": product.name,
+                "created_at": current_date.isoformat()
+            })
+
+        # Ofertas que vencen en 3 días (Prioridad media)
+        expiring_soon = await Product.find({
+            "is_offer": True,
+            "offer_end": {
+                "$gte": current_date,
+                "$lte": current_date + timedelta(days=3)
+            }
+        }).to_list()
+
+        for product in expiring_soon:
+            days_remaining = (product.offer_end - current_date).days
+            alerts.append({
+                "type": "expiring_offer",
+                "priority": "medium",
+                "message": f"Oferta de '{product.name}' vence en {days_remaining} días",
+                "product_id": str(product.id),
+                "product_name": product.name,
+                "days_remaining": days_remaining,
+                "created_at": current_date.isoformat()
+            })
+
+        # Stock bajo (Prioridad baja)
+        low_stock = await Product.find({
+            "status": "active",
+            "stock": {"$lte": 5, "$gt": 0}
+        }).to_list()
+
+        for product in low_stock:
+            alerts.append({
+                "type": "low_stock",
+                "priority": "low",
+                "message": f"Stock bajo para '{product.name}' ({product.stock} unidades)",
+                "product_id": str(product.id),
+                "product_name": product.name,
+                "current_stock": product.stock,
+                "created_at": current_date.isoformat()
+            })
+
+        # Filtrar por prioridad si se especifica
+        if priority:
+            alerts = [alert for alert in alerts if alert["priority"] == priority]
+
+        # Ordenar por prioridad (high -> medium -> low)
+        priority_order = {"high": 1, "medium": 2, "low": 3}
+        alerts.sort(key=lambda x: priority_order.get(x["priority"], 4))
+
+        return {
+            "success": True,
+            "data": {
+                "total_alerts": len(alerts),
+                "alerts": alerts,
+                "summary": {
+                    "high_priority": len([a for a in alerts if a["priority"] == "high"]),
+                    "medium_priority": len([a for a in alerts if a["priority"] == "medium"]),
+                    "low_priority": len([a for a in alerts if a["priority"] == "low"])
+                }
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al obtener alertas: {str(e)}"
+        )
+
+
 
 # Listar TODOS los productos (incluyendo inactivos) - ADMIN ONLY
 @router.get("/admin/all")
@@ -369,6 +727,7 @@ async def update_product_view(
         print(f"Error in update_product_view: {str(e)}")  # Debug adicional
         raise HTTPException(status_code=400, detail=f"Error al actualizar el producto: {str(e)}")
 
+
 # Eliminar producto - ADMIN ONLY
 @router.delete("/admin/{product_id}")
 async def delete_product(product_id: PydanticObjectId):
@@ -469,9 +828,6 @@ async def update_preventa_bulk_form(
         raise HTTPException(status_code=400, detail=f"Error en actualización masiva: {str(e)}")
 
 
-
-
-
 # Establecer fecha global de preventa - ADMIN ONLY
 @router.put("/admin/preventa/set-global-deadline")
 async def set_global_preventa_deadline(offer_end: str = Form(...)):
@@ -504,3 +860,5 @@ async def get_products_stats():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener estadísticas: {str(e)}")
+
+
