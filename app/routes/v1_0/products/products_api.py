@@ -830,18 +830,23 @@ async def update_preventa_bulk_form(
 
 # Establecer fecha global de preventa - ADMIN ONLY
 @router.put("/admin/preventa/set-global-deadline")
-async def set_global_preventa_deadline(offer_end: str = Form(...)):
+async def set_global_preventa_deadline(product_ids: List[str] = Form(...), offer_end: str = Form(...)):
     try:
-        result = await Product.find({"is_offer": True}).to_list()
+        # Buscar productos que tengan un ID en la lista product_ids
+        result = await Product.find({"_id": {"$in": product_ids}, "is_offer": True}).to_list()
 
+        if not result:
+            raise HTTPException(status_code=404, detail="No se encontraron productos con los IDs proporcionados")
+
+        # Actualizar la fecha de preventa solo en los productos encontrados
         for product in result:
             product.offer_end = offer_end
             await product.save()
 
         return {"message": f"Actualizado {len(result)} productos con nueva fecha de preventa"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al establecer fecha de preventa: {str(e)}")
-
 
 # Estadísticas de productos - ADMIN ONLY
 @router.get("/admin/stats")
