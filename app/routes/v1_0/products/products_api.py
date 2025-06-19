@@ -832,8 +832,15 @@ async def update_preventa_bulk_form(
 @router.put("/admin/preventa/set-global-deadline")
 async def set_global_preventa_deadline(product_ids: List[str] = Form(...), offer_end: str = Form(...)):
     try:
-        # Buscar productos que tengan un ID en la lista product_ids
-        result = await Product.find({"_id": {"$in": product_ids}, "is_offer": True}).to_list()
+        # Convertir strings a PydanticObjectId
+        object_ids = [PydanticObjectId(pid) for pid in product_ids]
+
+        # Ahora la query funcionará
+        result = await Product.find({
+            "_id": {"$in": object_ids},
+            "is_offer": True
+        }).to_list()
+
 
         if not result:
             raise HTTPException(status_code=404, detail="No se encontraron productos con los IDs proporcionados")
