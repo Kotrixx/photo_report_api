@@ -804,7 +804,7 @@ async def update_preventa_bulk_form(
                         product.offer_price = offer_prices[i]
 
                 if offer_end:
-                    product.offer_end = offer_end
+                    product.offer_end = datetime.strptime(offer_end, "%Y-%m-%d")
 
                 await product.save()
                 updated_products.append({
@@ -847,7 +847,7 @@ async def set_global_preventa_deadline(product_ids: List[str] = Form(...), offer
 
         # Actualizar la fecha de preventa solo en los productos encontrados
         for product in result:
-            product.offer_end = offer_end
+            product.offer_end = datetime.strptime(offer_end, "%Y-%m-%d")
             await product.save()
 
         return {"message": f"Actualizado {len(result)} productos con nueva fecha de preventa"}
