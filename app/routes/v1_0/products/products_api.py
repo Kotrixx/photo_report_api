@@ -25,8 +25,14 @@ async def list_active_products(
 ):
     try:
         skip = (page - 1) * limit
-        products = await Product.find({"status": "active"}).skip(skip).limit(limit).to_list()
-        total_products = await Product.find({"status": "active"}).count()
+
+        query = {
+            "status": "active",
+            "is_offer": False
+        }
+
+        products = await Product.find(query).skip(skip).limit(limit).to_list()
+        total_products = await Product.find(query).count()
         total_pages = (total_products + limit - 1) // limit
 
         return {
@@ -36,8 +42,10 @@ async def list_active_products(
             "total_pages": total_pages,
             "products": products
         }
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al obtener los productos activos: {str(e)}")
+
 
 
 # Buscar productos filtrados (público)
