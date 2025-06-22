@@ -840,27 +840,54 @@ async def update_preventa_bulk_form(
 
 # Establecer fecha global de preventa - ADMIN ONLY
 @router.put("/admin/preventa/set-global-deadline")
-async def set_global_preventa_deadline(product_ids: List[str] = Form(...), offer_end: str = Form(...)):
+async def set_global_preventa_deadline(
+    product_ids: List[str] = Form(...),
+    offer_end: Optional[str] = Form(None)
+):
     try:
-        # Convertir strings a PydanticObjectId
-        object_ids = [PydanticObjectId(pid) for pid in product_ids]
+        if not product_ids:
+            raise HTTPException(status_code=400, detail="Se requiere al menos un producto")
 
-        # Ahora la query funcionará
-        result = await Product.find({
-            "_id": {"$in": object_ids},
-            "is_offer": True
-        }).to_list()
+        if not offer_end:
+            raise HTTPException(status_code=400, detail="Debe proporcionar una fecha válida")
 
+        try:
+            parsed_date = datetime.strptime(offer_end, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="El formato de la fecha debe ser YYYY-MM-DD")
 
-        if not result:
-            raise HTTPException(status_code=404, detail="No se encontraron productos con los IDs proporcionados")
+        updated_products = []
+        skipped_products = []
 
-        # Actualizar la fecha de preventa solo en los productos encontrados
-        for product in result:
-            product.offer_end = datetime.strptime(offer_end, "%Y-%m-%d")
-            await product.save()
+        for pid in product_ids:
+            try:
+                product = await Product.get(PydanticObjectId(pid))
+                if not product:
+                    skipped_products.append({"id": pid, "reason": "Producto no encontrado"})
+                    continue
 
-        return {"message": f"Actualizado {len(result)} productos con nueva fecha de preventa"}
+                if not product.is_offer:
+                    skipped_products.append({"id": pid, "reason": "Producto no está marcado como oferta"})
+                    continue
+
+                product.offer_end = parsed_date
+                await product.save()
+
+                updated_products.append({
+                    "id": str(product.id),
+                    "name": product.name,
+                    "offer_end": product.offer_end
+                })
+
+            except Exception as e:
+                skipped_products.append({"id": pid, "reason": f"Error: {str(e)}"})
+
+        return {
+            "success": True,
+            "message": f"{len(updated_products)} productos actualizados correctamente",
+            "updated_products": updated_products,
+            "skipped_products": skipped_products
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al establecer fecha de preventa: {str(e)}")
