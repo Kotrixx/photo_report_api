@@ -802,7 +802,9 @@ async def update_preventa_bulk_form(
 
                     elif offer_prices and i < len(offer_prices):
                         product.offer_price = offer_prices[i]
-
+                else:
+                    product.offer_end = None
+                    product.offer_price = None
                 if offer_end:
                     product.offer_end = datetime.strptime(offer_end, "%Y-%m-%d")
 
